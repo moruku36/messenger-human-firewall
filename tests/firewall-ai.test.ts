@@ -178,4 +178,29 @@ describe('Live Gemini Provider Integration (with API Key)', () => {
       throw err;
     }
   }, 30000);
+
+  it('GeminiProvider consumes and blocks requests when daily quota is exceeded in store', async () => {
+    const { ThreadStore } = await import('../src/core/storage.js');
+    const { resetConfigForTest } = await import('../src/core/config.js');
+    process.env.MAX_LLM_REQUESTS_PER_DAY = '1';
+    resetConfigForTest();
+
+    const memStore = new ThreadStore(':memory:');
+    // Pre-record 1 request
+    memStore.recordLlmRequest(Date.now() - 1000);
+
+    const provider = new GeminiProvider('fake-key', 'gemini-3.6-flash', memStore);
+
+    // classify() catches error and safely fails-closed to HUMAN_REQUIRED
+    const classResult = await provider.classify('テストメッセージ');
+    expect(classResult.action).toBe('HUMAN_REQUIRED');
+    expect(classResult.reason).toContain('Daily LLM request quota reached');
+
+    // generateReply() propagates the quota error
+    await expect(
+      provider.generateReply('TIME_WASTER', 'テストメッセージ')
+    ).rejects.toThrow('Daily LLM request quota reached');
+
+    memStore.close();
+  });
 });

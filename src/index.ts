@@ -41,7 +41,7 @@ export async function runWatcherOnce(): Promise<void> {
 
   const userDataDir = path.resolve(process.cwd(), config.BROWSER_USER_DATA_DIR);
   const store = new ThreadStore(config.DATABASE_PATH);
-  const gemini = new GeminiProvider();
+  const gemini = new GeminiProvider(config.GEMINI_API_KEY, config.GEMINI_MODEL, store);
   const firewallCore = new HumanFirewallCore(gemini, gemini);
   const pipeline = new FirewallPipeline(firewallCore, store);
 

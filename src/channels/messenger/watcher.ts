@@ -198,34 +198,56 @@ export async function scanMessageRequests(
 }
 
 /**
- * Finds the thread item matching expectedThreadId, activates it via click if not active,
- * and verifies that the thread is currently focused in the main pane before any message send.
+ * Finds the thread item matching expectedThreadId with strict equality,
+ * activates it via click if not active, and verifies that the thread is currently
+ * the single active focused thread in the Messenger UI before any message send.
  */
 export async function selectAndVerifyActiveThread(
   page: Page,
   expectedThreadId: string,
 ): Promise<boolean> {
-  const threadElements = await page.$$(MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.threadItem));
+  const selector = MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.threadItem);
+  const threadElements = await page.$$(selector);
 
-  for (const threadEl of threadElements) {
+  let targetEl: (typeof threadElements)[0] | null = null;
+
+  for (const el of threadElements) {
     const rawId =
-      (await threadEl.getAttribute('id')) ||
-      (await threadEl.getAttribute('aria-label')) ||
+      (await el.getAttribute('id')) ||
+      (await el.getAttribute('aria-label')) ||
       '';
 
-    if (rawId === expectedThreadId || (expectedThreadId && rawId.includes(expectedThreadId))) {
-      // Check if it already has active class or aria-selected
-      const isActive = await threadEl.evaluate((el) => {
-        return (
-          el.classList.contains('active') ||
-          el.getAttribute('aria-selected') === 'true'
-        );
-      });
+    if (rawId === expectedThreadId) {
+      targetEl = el;
+      break;
+    }
+  }
 
-      if (!isActive) {
-        await threadEl.click().catch(() => {});
-        await page.waitForTimeout(300);
-      }
+  if (!targetEl) {
+    return false;
+  }
+
+  // Check if target is already active
+  const isCurrentlyActive = await targetEl.evaluate((el) => {
+    return el.classList.contains('active') || el.getAttribute('aria-selected') === 'true';
+  });
+
+  if (!isCurrentlyActive) {
+    await targetEl.click().catch(() => {});
+    await page.waitForTimeout(300);
+  }
+
+  // Re-verify: Query currently active thread item in DOM and ensure exact match with expectedThreadId
+  const activeElements = await page.$$(
+    '.thread-item.active, div[data-testid="messenger-chat-list-item"].active, div[role="listitem"][aria-selected="true"]',
+  );
+
+  for (const activeEl of activeElements) {
+    const activeId =
+      (await activeEl.getAttribute('id')) ||
+      (await activeEl.getAttribute('aria-label')) ||
+      '';
+    if (activeId === expectedThreadId) {
       return true;
     }
   }

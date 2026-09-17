@@ -45,13 +45,68 @@ export class FirewallPipeline {
     const existing = this.store.getThread(threadHash);
     const initialReplyCount = existing?.replyCount || 0;
 
+    // 2.5 Daily LLM Request Quota Check (Hard Cap Against API Cost Explosion)
+    const recentLlmCount = this.store.getRecentLlmRequestCount(24 * 60 * 60 * 1000);
+    if (recentLlmCount >= config.MAX_LLM_REQUESTS_PER_DAY) {
+      logEvent({
+        event: 'RATE_LIMITED',
+        threadHash,
+        reasonCode: 'LLM_DAILY_QUOTA_EXCEEDED',
+        details: {
+          blockReason: `Daily LLM request limit reached (${recentLlmCount}/${config.MAX_LLM_REQUESTS_PER_DAY})`,
+        },
+      });
+
+      const quotaResult: FirewallProcessResult = {
+        classification: {
+          category: 'UNKNOWN',
+          action: 'HUMAN_REQUIRED',
+          risk: 50,
+          reason: `Daily LLM request quota reached (${recentLlmCount}/${config.MAX_LLM_REQUESTS_PER_DAY}). Escalated to human.`,
+        },
+        finalDecision: 'HUMAN_REQUIRED',
+      };
+
+      this.renderExecutionOutput(
+        options,
+        quotaResult,
+        config.DRY_RUN,
+        false,
+        `Daily LLM quota exceeded (${recentLlmCount}/${config.MAX_LLM_REQUESTS_PER_DAY})`,
+        initialReplyCount,
+        config.CONTROLLED_MAX_REPLIES,
+      );
+      return quotaResult;
+    }
+
     // 3. Process via Firewall Core (Classification + Generation + Reply Guard)
-    const result = await this.firewall.processMessage(
-      incomingText,
-      threadHash,
-      historySummary,
-      initialReplyCount,
-    );
+    let result: FirewallProcessResult;
+    try {
+      result = await this.firewall.processMessage(
+        incomingText,
+        threadHash,
+        historySummary,
+        initialReplyCount,
+      );
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isQuotaError = errMsg.includes('Daily LLM request quota reached');
+      logEvent({
+        event: isQuotaError ? 'RATE_LIMITED' : 'ERROR',
+        threadHash,
+        reasonCode: isQuotaError ? 'LLM_DAILY_QUOTA_EXCEEDED' : 'LLM_PROCESSING_ERROR',
+      });
+
+      result = {
+        classification: {
+          category: 'UNKNOWN',
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reason: `LLM execution halted: ${errMsg}`,
+        },
+        finalDecision: 'HUMAN_REQUIRED',
+      };
+    }
 
     const now = Date.now();
     const messageCount = (existing?.messageCount || 0) + 1;
@@ -126,18 +181,27 @@ export class FirewallPipeline {
     currentCount: number,
     maxReplies: number,
   ): void {
+    const isDebug = process.env.DEBUG === 'true';
+    const reasonDisplay = isDebug
+      ? result.classification.reason
+      : `[MASKED: Set DEBUG=true to view rationale (${result.classification.category}_CLASSIFIED)]`;
+
     console.log('\n====================================================');
     console.log(`🛡️  FIREWALL INTERCEPTION & DECISION (${actuallySent ? 'LIVE SENT' : (isDryRun ? 'DRY RUN' : 'CONTROLLED BLOCKED')})`);
     console.log('====================================================');
     console.log(`[Thread ID Hash] : ${options.threadHash.slice(0, 16)}...`);
     console.log(`[Classification] : ${result.classification.category} (Risk: ${result.classification.risk}/100)`);
-    console.log(`[Reason]         : ${result.classification.reason}`);
+    console.log(`[Reason Code]    : ${reasonDisplay}`);
     console.log(`[Action Decided] : ${result.classification.action}${result.timeWasterState ? ` (Phase: ${result.timeWasterState})` : ''}`);
 
     if (result.candidateReply) {
+      const replyDisplay = isDebug
+        ? `「${result.candidateReply}」`
+        : `[PROTECTED: ${result.candidateReply.length} chars (Set DEBUG=true to inspect candidate body)]`;
+
       console.log('----------------------------------------------------');
       console.log(`💬 Candidate Reply (${actuallySent ? '✅ SENT TO MESSENGER' : 'NOT SENT'}):`);
-      console.log(`   「${result.candidateReply}」`);
+      console.log(`   ${replyDisplay}`);
       console.log('----------------------------------------------------');
     }
 

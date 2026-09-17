@@ -39,43 +39,47 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 ## 信頼境界とデータポリシー (Trust Boundary & Data Policy)
 
 ```text
-┌──────────────────────────────────────────────────────────┐
-│ Local Host Machine (Trusted & Controlled Boundary)       │
-│                                                          │
-│  [Playwright Browser]                                    │
-│    Messenger Message Requests (Incoming stranger text)   │
-│         │                                                │
-│         ▼                                                │
-│  [Browser Watcher & Validator]                           │
-│         │                                                │
-│         ├─────────────► [SQLite State Store]             │
-│         │                (Only sha256 hashes & counters) │
-│         │                                                │
-│         ▼ (HTTPS Outbound)                               │
-│  [Google Gemini API] ─────────────────────────────────┐  │
-│    Model: gemini-3.6-flash                            │  │
-│    Header: x-goog-api-key                             │  │
-│         │                                             │  │
-│         ▼ (Candidate text returned)                   │  │
-│  [Reply Guard (Regex / Safety Policy)]                │  │
-│         │                                             │  │
-│         ▼                                             │  │
-│  [Controlled Send Gate]                               │  │
-│    (Strict Thread Match, 15s interval, 24h limit)    │  │
-│         │                                             │  │
-│         ▼                                             │  │
-│  [Playwright Active Thread Dispatch]                  │  │
-└───────────────────────────────────────────────────────┼──┘
-                                                        ▼
-                                                Third-party Cloud
-                                                (Google Generative AI)
+┌────────────────────────────────────────────────────────────┐
+│ Local Host Machine (Trusted & Controlled Environment)      │
+│                                                            │
+│  [Playwright Browser]                                      │
+│    Messenger Message Requests                              │
+│         │                                                  │
+│         ▼                                                  │
+│  [Browser Watcher & Validator]                             │
+│         │                                                  │
+│         ├──────────────► [SQLite State Store]              │
+│         │                 (sha256 hashes & counters only)  │
+│         │                                                  │
+│         ▼ (HTTPS: Stranger message text only)              │
+│    ═══════════════════════════════════════════════╗        │
+│                                                   ║        │
+│  [Reply Guard (Safety Regex & Policies)] ◄────────╫────────┼───┐
+│         │                                         ║        │   │
+│         ▼                                         ║        │   │
+│  [Controlled Send Gate]                           ║        │   │
+│    (Strict Thread Match, 15s interval, 24h cap)   ║        │   │
+│         │                                         ║        │   │
+│         ▼                                         ║        │   │
+│  [Playwright Dispatch to Active Thread]           ║        │   │
+└───────────────────────────────────────────────────╫────────┘   │
+                                                    ║             │
+                                 Internet Boundary  ║             │
+                                                    ▼             │
+                                      ┌───────────────────────┐   │
+                                      │ Third-Party Cloud     │   │
+                                      │ Google Gemini API     │───┘
+                                      │ (gemini-3.6-flash)    │
+                                      │ Header: x-goog-api-key│
+                                      └───────────────────────┘
 ```
 
 ### データ送信とプライバシーに関する重要事項
 1. **外部送信対象**: トリアージおよび返信生成のため、受信した相手のメッセージ本文のみが HTTPS 経由で Google Gemini API に送信されます。
 2. **所有者情報の保護**: LLM に対し、ユーザー自身の個人情報（氏名、電話番号、住所、スケジュール等）はプロンプトに一切与えません（Zero-Context Prompting）。
 3. **ローカル永続化**: ローカル DB（SQLite）および標準出力ログにはメッセージ本文を平文で保存せず、SHA-256 ハッシュと安全なメタデータのみを記録します。
-4. **利用規約・データ保護**: ご利用の Google Cloud / Gemini API アカウントにおけるデータ保持・学習ポリシー（有料 Tier でのオプトアウト等）を事前にご確認ください。
+4. **コンソール非表示**: 送信候補テキストおよびLLMの判定理由はデフォルトでマスク表示されます（内容を点検する場合は `DEBUG=true` を指定）。
+5. **利用規約・データ保護**: ご利用の Google Cloud / Gemini API アカウントにおけるデータ保持・学習ポリシー（有料 Tier でのオプトアウト等）を事前にご確認ください。
 
 ---
 
@@ -104,8 +108,14 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 2. **Untrusted Input 原則**: 相手からのメッセージは未信頼の外部入力として扱い、システムプロンプトの強固なガードレールでPrompt Injectionを抑制。
 3. **ローカル二重検査 (Reply Guard)**: LLMの出力結果を送信直前にローカルの正規表現・ルールベースで検査し、個人情報・URL・合意フレーズをブロック。
 4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
-5. **多層レートリミット**: スレッド検証（誤スレッド送信阻止）、1スレッド最大3返信（初期制限）、24時間ローリング上限、15秒間隔待機、緊急停止キルスイッチ。
-6. **ログ・DB ハッシュ化**: メッセージ本文をDBに平文保存せず、ログにもサニタイズされた要約とハッシュのみ記録。
+5. **多層レートリミット & コスト防護**:
+   - 誤スレッド送信の二重検証（クリック後にアクティブスレッドを再検証）
+   - 1スレッド最大3返信制限（初期制限）
+   - 24時間ローリング送信上限（最大20返信/スレッド）
+   - 1日のLLM総リクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回）
+   - 15秒送信インターバル待機
+   - 緊急停止キルスイッチ
+6. **ログ・DB ハッシュ化**: メッセージ本文をDBに平文保存せず、ログにもサニタイズされた定型コード（`reasonCode`）とハッシュのみ記録。
 
 詳細な脅威分析は [THREAT_MODEL.md](docs/THREAT_MODEL.md) を参照してください。
 
@@ -149,9 +159,12 @@ npm run login
 
 ```bash
 npm run dev
+
+# 候補文や判定理由をコンソール上で点検したい場合
+DEBUG=true npm run dev
 ```
 
-### 2. 緊急停止 (Kill Switch)
+### 3. 緊急停止 (Kill Switch)
 
 ```bash
 # システムの即時停止 (返信と監視をブロック)
@@ -166,10 +179,18 @@ npm run status
 
 `.env` で `PAUSE_ALL=true` を設定することでも即時停止可能です。
 
-### 3. テストの実行
+### 4. ローカルダッシュボード (Web UI)
+ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧の閲覧、スレッド単位の手動停止が可能です。
 
 ```bash
-# 単体テストの実行
+npm run dashboard
+# ブラウザで http://localhost:3000 にアクセス
+```
+
+### 5. テストの実行
+
+```bash
+# 単体・結合テストの実行
 npm test
 
 # 型チェックおよびビルド
@@ -183,7 +204,7 @@ npm run lint
 
 ## ログ設計 (Observability)
 
-本システムはプライバシー保護のため、メッセージ本文を標準出力やログにダンプしません。以下の構造化イベントのみを出力します：
+本システムはプライバシー保護のため、メッセージ本文やLLMの思考テキストを標準出力やログにダンプしません。以下の構造化イベントおよび機械可読コードのみを出力します：
 
 - `THREAD_DETECTED`
 - `MESSAGE_RECEIVED`
@@ -198,7 +219,7 @@ npm run lint
 
 ログ出力例：
 ```json
-{"timestamp":"2026-09-17T02:50:00.000Z","event":"CLASSIFIED","threadHash":"sha256:abc...","category":"SCAM","action":"TIME_WASTER","risk":85}
+{"timestamp":"2026-09-17T02:50:00.000Z","event":"CLASSIFIED","threadHash":"sha256:abc...","category":"SCAM","action":"TIME_WASTER","risk":85,"reasonCode":"SCAM_CLASSIFIED"}
 ```
 
 ---

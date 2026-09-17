@@ -98,7 +98,8 @@ export interface ObservabilityLog {
   category?: Category;
   action?: Action;
   risk?: number;
-  reason?: string;
+  reasonCode?: string;
+  reason?: string; // Kept for interface compatibility; masked in logger to guarantee zero-dump
   details?: SafeLogDetails;
 }
 

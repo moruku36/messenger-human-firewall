@@ -5,6 +5,7 @@ import type {
   LLMReplyGenerator,
 } from '../core/index.js';
 import { ClassificationResultSchema } from '../core/types.js';
+import type { ThreadStore } from '../core/storage.js';
 
 interface GeminiContent {
   role?: string;
@@ -37,11 +38,13 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
   public name = 'gemini';
   private apiKey: string;
   private model: string;
+  private store?: ThreadStore;
 
-  constructor(apiKey?: string, model?: string) {
+  constructor(apiKey?: string, model?: string, store?: ThreadStore) {
     const config = getConfig();
     this.apiKey = apiKey || config.GEMINI_API_KEY || '';
     this.model = model || config.GEMINI_MODEL || 'gemini-3.6-flash';
+    this.store = store;
   }
 
   private async callApi(
@@ -51,6 +54,18 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
   ): Promise<string> {
     if (!this.apiKey) {
       throw new Error('GEMINI_API_KEY is not configured.');
+    }
+
+    // Strict per-API-request rate limit hard cap
+    if (this.store) {
+      const config = getConfig();
+      const recentCount = this.store.getRecentLlmRequestCount(24 * 60 * 60 * 1000);
+      if (recentCount >= config.MAX_LLM_REQUESTS_PER_DAY) {
+        throw new Error(
+          `Daily LLM request quota reached (${recentCount}/${config.MAX_LLM_REQUESTS_PER_DAY}). Aborting API call for cost protection.`,
+        );
+      }
+      this.store.recordLlmRequest();
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
