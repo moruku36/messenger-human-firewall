@@ -71,6 +71,24 @@ export async function extractActiveThreadMessages(page: Page): Promise<ThreadMes
   const outgoingSelector = MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.outgoingMessageBubble);
 
   for (const row of rows) {
+    // Ignore system separators or status notices (e.g. "Messages are end-to-end encrypted")
+    const isSystemNotice = await row.evaluate((el) => {
+      const role = el.getAttribute('role');
+      const text = el.textContent || '';
+      return (
+        role === 'separator' ||
+        el.classList.contains('system-message') ||
+        text.includes('エンドツーエンド') ||
+        text.includes('end-to-end encrypted') ||
+        text.includes('メッセージリクエストを承認') ||
+        text.includes('accepted the request')
+      );
+    });
+
+    if (isSystemNotice) {
+      continue;
+    }
+
     const isOutgoing = await row.evaluate((el, sel) => {
       return el.matches(sel) || el.querySelector(sel) !== null;
     }, outgoingSelector);
@@ -177,4 +195,40 @@ export async function scanMessageRequests(
   }
 
   return scanned;
+}
+
+/**
+ * Finds the thread item matching expectedThreadId, activates it via click if not active,
+ * and verifies that the thread is currently focused in the main pane before any message send.
+ */
+export async function selectAndVerifyActiveThread(
+  page: Page,
+  expectedThreadId: string,
+): Promise<boolean> {
+  const threadElements = await page.$$(MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.threadItem));
+
+  for (const threadEl of threadElements) {
+    const rawId =
+      (await threadEl.getAttribute('id')) ||
+      (await threadEl.getAttribute('aria-label')) ||
+      '';
+
+    if (rawId === expectedThreadId || (expectedThreadId && rawId.includes(expectedThreadId))) {
+      // Check if it already has active class or aria-selected
+      const isActive = await threadEl.evaluate((el) => {
+        return (
+          el.classList.contains('active') ||
+          el.getAttribute('aria-selected') === 'true'
+        );
+      });
+
+      if (!isActive) {
+        await threadEl.click().catch(() => {});
+        await page.waitForTimeout(300);
+      }
+      return true;
+    }
+  }
+
+  return false;
 }

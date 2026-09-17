@@ -41,6 +41,13 @@ export class ThreadStore {
         paused INTEGER NOT NULL DEFAULT 0,
         human_required INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_replies_thread_time ON replies(thread_id, timestamp);
     `);
 
     // Ensure reply_count column exists if table existed previously
@@ -161,6 +168,20 @@ export class ThreadStore {
     const stmt = this.db.prepare('UPDATE threads SET paused = ? WHERE thread_id = ?');
     const res = stmt.run(paused ? 1 : 0, threadId);
     return res.changes > 0;
+  }
+
+  public recordReply(threadId: string, timestamp = Date.now()): void {
+    const stmt = this.db.prepare('INSERT INTO replies (thread_id, timestamp) VALUES (?, ?)');
+    stmt.run(threadId, timestamp);
+  }
+
+  public getRecentReplyCount(threadId: string, windowMs = 24 * 60 * 60 * 1000): number {
+    const threshold = Date.now() - windowMs;
+    const stmt = this.db.prepare<[string, number], { count: number }>(
+      'SELECT COUNT(*) as count FROM replies WHERE thread_id = ? AND timestamp > ?'
+    );
+    const row = stmt.get(threadId, threshold);
+    return row ? row.count : 0;
   }
 
   public close(): void {

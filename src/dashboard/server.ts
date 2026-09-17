@@ -17,8 +17,32 @@ export function createDashboardServer(options: DashboardServerOptions = {}) {
   const port = options.port ?? 3000;
   const store = options.store ?? new ThreadStore();
 
+  const allowedHosts = new Set([
+    `localhost:${port}`,
+    `127.0.0.1:${port}`,
+    'localhost',
+    '127.0.0.1',
+  ]);
+
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const hostHeader = req.headers.host || '';
+    if (!allowedHosts.has(hostHeader)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: Invalid Host header' }));
+      return;
+    }
+
+    // Protect POST APIs from CSRF by verifying Origin header if present
+    if (req.method === 'POST') {
+      const origin = req.headers.origin;
+      if (origin && !origin.startsWith(`http://localhost:${port}`) && !origin.startsWith(`http://127.0.0.1:${port}`)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: Invalid Origin' }));
+        return;
+      }
+    }
+
+    const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
 
     // API: System Status
     if (req.method === 'GET' && url.pathname === '/api/status') {
@@ -105,7 +129,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}) {
 
   return {
     server,
-    start: () => new Promise<void>((resolve) => server.listen(port, resolve)),
+    start: () => new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve)),
     close: () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
     port,
   };

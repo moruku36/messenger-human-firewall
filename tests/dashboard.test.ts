@@ -102,4 +102,37 @@ describe('Phase 7: Local Dashboard Server (localhost)', () => {
     expect(resPause.status).toBe(200);
     expect(store.getThread(threadHash)?.paused).toBe(true);
   });
+
+  it('rejects external/unknown Host headers with 403 Forbidden', async () => {
+    const http = await import('node:http');
+    const statusCode = await new Promise<number>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port: testPort,
+        path: '/api/status',
+        method: 'GET',
+        headers: { Host: 'evil-attacker.com' },
+      }, (res) => {
+        resolve(res.statusCode || 0);
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    expect(statusCode).toBe(403);
+  });
+
+  it('rejects cross-origin POST requests with 403 Forbidden', async () => {
+    const res = await fetch(`${baseUrl}/api/killswitch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://malicious-website.com',
+      },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain('Forbidden: Invalid Origin');
+  });
 });

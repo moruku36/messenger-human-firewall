@@ -36,7 +36,7 @@ export function checkControlledReplyEligibility(
     };
   }
 
-  // 2. Explicit thread allowance check
+  // 2. Explicit thread allowance check (Strict equality only, no includes)
   const allowedTarget = config.ALLOWED_TEST_THREAD_ID?.trim();
   if (!allowedTarget) {
     return {
@@ -49,9 +49,7 @@ export function checkControlledReplyEligibility(
 
   const isMatchingThread =
     allowedTarget === threadId ||
-    allowedTarget === threadHash ||
-    threadId.includes(allowedTarget) ||
-    threadHash.includes(allowedTarget);
+    allowedTarget === threadHash;
 
   if (!isMatchingThread) {
     return {
@@ -72,11 +70,12 @@ export function checkControlledReplyEligibility(
     };
   }
 
-  // 4. Daily limit check
-  if (currentCount >= config.MAX_REPLIES_PER_THREAD_PER_DAY) {
+  // 4. Rolling 24-hour daily limit check
+  const recent24hCount = store.getRecentReplyCount(threadHash, 24 * 60 * 60 * 1000);
+  if (recent24hCount >= config.MAX_REPLIES_PER_THREAD_PER_DAY) {
     return {
       allowed: false,
-      reason: `DAILY_LIMIT_REACHED: Thread has exceeded ${config.MAX_REPLIES_PER_THREAD_PER_DAY} replies/24h.`,
+      reason: `DAILY_LIMIT_REACHED: Thread has exceeded ${config.MAX_REPLIES_PER_THREAD_PER_DAY} replies in rolling 24h (count: ${recent24hCount}).`,
       currentCount,
       maxReplies,
     };
