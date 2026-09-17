@@ -23,15 +23,15 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 | Phase | 内容 | 状態 | 備考 |
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | **Skeleton & Safety Foundations** | **完了 (Completed)** | 型定義、Reply Guard、Kill Switch、厳格セレクタ、CI |
-| **Phase 2** | **Browser Watcher** | 未着手 (Next) | Playwright監視、新着・未読検知、Fake HTMLテスト |
-| **Phase 3** | **Human Firewall AI** | 未着手 | LLM分類・返信生成プロバイダー実装 |
+| **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
+| **Phase 3** | **Human Firewall AI** | 未着手 (Next) | LLM分類・返信生成プロバイダー実装 |
 | **Phase 4** | **Dry Run Integration** | 未着手 | 監視〜分類〜返信生成〜ガード統合 (送信なし) |
 | **Phase 5** | **Controlled Reply** | 未着手 | 承認後のみ制限付き自動送信 |
 | **Phase 6** | **Time Waster State Machine** | 未着手 | 会話継続ステートマシン |
 | **Phase 7** | **Local Dashboard** | 未着手 | localhost:3000 管理画面 |
 
 > [!NOTE]
-> 現在のリポジトリは **Phase 1 (Skeleton)** 完了段階です。`src/index.ts` は設定ロード、事前安全ガード確認、初期化ログを出力する検証エントリポイントであり、ブラウザ常駐監視ループは **Phase 2** で統合されます。
+> 現在のリポジトリは **Phase 2 (Browser Watcher)** 完了段階です。`src/index.ts` は Persistent Context (`data/browser-profile`) を使って Message Requests をスキャンし、未読メッセージの抽出と重複排除（Dry Run）を行います。実際の Messenger 送信は行われません。
 
 
 ---
@@ -136,8 +136,16 @@ cp .env.example .env
 
 ## 使い方
 
-### 1. 起動・初期化確認 (Phase 1)
-現在は Phase 1 (Skeleton) です。設定ロード、事前安全ガード、Kill Switchの検証を行い、ログを出力します。
+### 1. 手動ログイン (初回のみ)
+Playwright Persistent Context 用の Chrome を起動し、Messenger に手動ログインしてセッションを保存します。
+
+```bash
+npm run login
+```
+ログイン完了後、開いたブラウザウィンドウを閉じるとセッションが `data/browser-profile` に保存されます。
+
+### 2. Message Requests 監視スキャン (Dry Run)
+保存されたセッションを用いて Messenger の「メッセージリクエスト」を監視スキャンします。未読メッセージを検知して適格性を判定しますが、**Messengerへの自動送信は行われません**。
 
 ```bash
 npm run dev
