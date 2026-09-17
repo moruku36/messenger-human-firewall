@@ -86,6 +86,7 @@ export const SafeLogDetailsSchema = z
     messageCount: z.number().optional(),
     step: z.string().optional(),
     statusMessage: z.string().optional(),
+    timeWasterState: z.string().optional(),
   })
   .strict();
 export type SafeLogDetails = z.infer<typeof SafeLogDetailsSchema>;

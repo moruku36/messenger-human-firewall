@@ -19,6 +19,7 @@ export interface LLMReplyGenerator {
     action: Extract<Action, 'POLITE_REPLY' | 'TIME_WASTER'>,
     incomingMessage: string,
     historySummary?: string,
+    timeWasterState?: string,
   ): Promise<string>;
 }
 

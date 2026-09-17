@@ -2,12 +2,14 @@ import { inspectReply, type ReplyGuardResult } from './reply-guard.js';
 import type { Action, ClassificationResult } from './types.js';
 import type { LLMClassifier, LLMReplyGenerator } from './llm.js';
 import { logEvent } from './logger.js';
+import { determineTimeWasterState, type TimeWasterState } from './state-machine.js';
 
 export interface FirewallProcessResult {
   classification: ClassificationResult;
   candidateReply?: string;
   guardResult?: ReplyGuardResult;
   finalDecision: 'SEND_ALLOWED' | 'REPLY_BLOCKED' | 'IGNORED' | 'HUMAN_REQUIRED' | 'BLOCK_RECOMMENDED';
+  timeWasterState?: TimeWasterState;
 }
 
 export class HumanFirewallCore {
@@ -27,6 +29,7 @@ export class HumanFirewallCore {
     incomingMessage: string,
     threadHash: string,
     historySummary?: string,
+    replyCount = 0,
   ): Promise<FirewallProcessResult> {
     // 1. Classification
     const classification = await this.classifier.classify(incomingMessage, historySummary);
@@ -74,9 +77,11 @@ export class HumanFirewallCore {
     const replyAction: Extract<Action, 'POLITE_REPLY' | 'TIME_WASTER'> =
       classification.action === 'POLITE_REPLY' ? 'POLITE_REPLY' : 'TIME_WASTER';
 
+    const timeWasterState = replyAction === 'TIME_WASTER' ? determineTimeWasterState(replyCount) : undefined;
+
     let reply = classification.reply;
-    if (!reply) {
-      reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary);
+    if (!reply || replyAction === 'TIME_WASTER') {
+      reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary, timeWasterState);
     }
 
     logEvent({
@@ -86,6 +91,7 @@ export class HumanFirewallCore {
       details: {
         replyLength: reply.length,
         step: 'REPLY_GENERATED',
+        timeWasterState,
       },
     });
 
@@ -99,6 +105,7 @@ export class HumanFirewallCore {
         details: {
           blockReason: guardResult.blockedReason,
           ruleTriggered: guardResult.ruleTriggered,
+          timeWasterState,
         },
       });
 
@@ -107,6 +114,7 @@ export class HumanFirewallCore {
         candidateReply: reply,
         guardResult,
         finalDecision: 'REPLY_BLOCKED',
+        timeWasterState,
       };
     }
 
@@ -115,6 +123,7 @@ export class HumanFirewallCore {
       candidateReply: reply,
       guardResult,
       finalDecision: 'SEND_ALLOWED',
+      timeWasterState,
     };
   }
 }

@@ -58,6 +58,7 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
   });
 
   afterEach(async () => {
+    setSystemPause(false);
     store.close();
     await page.close();
   });

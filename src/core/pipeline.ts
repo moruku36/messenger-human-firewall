@@ -42,13 +42,20 @@ export class FirewallPipeline {
       return null;
     }
 
-    // 3. Process via Firewall Core (Classification + Generation + Reply Guard)
-    const result = await this.firewall.processMessage(incomingText, threadHash, historySummary);
-
     const existing = this.store.getThread(threadHash);
+    const initialReplyCount = existing?.replyCount || 0;
+
+    // 3. Process via Firewall Core (Classification + Generation + Reply Guard)
+    const result = await this.firewall.processMessage(
+      incomingText,
+      threadHash,
+      historySummary,
+      initialReplyCount,
+    );
+
     const now = Date.now();
     const messageCount = (existing?.messageCount || 0) + 1;
-    let replyCount = existing?.replyCount || 0;
+    let replyCount = initialReplyCount;
 
     // 4. Controlled Reply Decision
     let actuallySent = false;
@@ -126,7 +133,7 @@ export class FirewallPipeline {
     console.log(`[Thread ID Hash] : ${options.threadHash.slice(0, 16)}...`);
     console.log(`[Classification] : ${result.classification.category} (Risk: ${result.classification.risk}/100)`);
     console.log(`[Reason]         : ${result.classification.reason}`);
-    console.log(`[Action Decided] : ${result.classification.action}`);
+    console.log(`[Action Decided] : ${result.classification.action}${result.timeWasterState ? ` (Phase: ${result.timeWasterState})` : ''}`);
 
     if (result.candidateReply) {
       console.log('----------------------------------------------------');
