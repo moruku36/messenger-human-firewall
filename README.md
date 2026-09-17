@@ -44,8 +44,8 @@ flowchart TD
     subgraph Actions["3. Decision & State Machine"]
         Ignore["何もしない (IGNORE)"]
         Escalate["人間要対応 (HUMAN_REQUIRED)"]
-        BlockRec["ブロック推奨記録 (BLOCK)"]
-        StateMachine["State Machine<br/>(AI Receptionist / Time Waster)"]
+        BlockRec["ブロック推奨記録 (BLOCK_RECOMMENDED)"]
+        StateMachine["State Machine<br/>(POLITE_REPLY / TIME_WASTER)"]
     end
 
     subgraph Safety["4. Local Safety & Reply Guard"]
@@ -83,7 +83,8 @@ flowchart TD
 
 > [!WARNING]
 > **Status: Experimental / v0**
-> 本リポジトリは実験的なリサーチ・防御プロトタイプです。公開環境や個人アカウントでの利用にあたっては、必ず `DRY_RUN=true` で動作確認を行い、Meta利用規約およびレートリミットを遵守してください。
+> 本プロジェクトは **Meta の公式 API を利用するものではなく、Web UI を Playwright で操作する実験的なリサーチ・防御プロトタイプ** です。
+> 個人アカウントでの利用にあたっては、必ず `DRY_RUN=true` で挙動確認を行い、Meta利用規約およびレートリミットを遵守してください。商用環境での無人運用は推奨されません。
 
 | Phase | 内容 | 状態 | 備考 |
 | :--- | :--- | :--- | :--- |
@@ -98,43 +99,9 @@ flowchart TD
 ---
 
 ## 信頼境界とデータポリシー (Trust Boundary & Data Policy)
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│ Local Host Machine (Trusted & Controlled Environment)      │
-│                                                            │
-│  [Playwright Browser]                                      │
-│    Messenger Message Requests                              │
-│         │                                                  │
-│         ▼                                                  │
-│  [Browser Watcher & Validator]                             │
-│         │                                                  │
-│         ├──────────────► [SQLite State Store]              │
-│         │                 (sha256 hashes & counters only)  │
-│         │                                                  │
-│         ▼ (HTTPS: Stranger message text only)              │
-│    ═══════════════════════════════════════════════╗        │
-│                                                   ║        │
-│  [Reply Guard (Safety Regex & Policies)] ◄────────╫────────┼───┐
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Controlled Send Gate]                           ║        │   │
-│    (Strict Thread Match, 15s interval, 24h cap)   ║        │   │
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Playwright Dispatch to Active Thread]           ║        │   │
-└───────────────────────────────────────────────────╫────────┘   │
-                                                    ║             │
-                                 Internet Boundary  ║             │
-                                                    ▼             │
-                                      ┌───────────────────────┐   │
-                                      │ Third-Party Cloud     │   │
-                                      │ Google Gemini API     │───┘
-                                      │ (gemini-3.6-flash)    │
-                                      │ Header: x-goog-api-key│
-                                      └───────────────────────┘
-```
-
+ 
+詳細なシステムトポロジおよびコンポーネント構成は [ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
+ 
 ### データ送信とプライバシーに関する重要事項
 1. **外部送信対象**: トリアージおよび返信生成のため、受信した相手のメッセージ本文のみが HTTPS 経由で Google Gemini API に送信されます。
 2. **所有者情報の保護**: LLM に対し、ユーザー自身の個人情報（氏名、電話番号、住所、スケジュール等）はプロンプトに一切与えません（Zero-Context Prompting）。
@@ -290,6 +257,27 @@ npm run lint
 - Facebook MessengerのDOM構造の変更により、定期的なセレクタのメンテナンスが必要になる場合があります。
 - CAPTCHAや多要素認証（MFA）を自動で迂回することはポリシー上サポートしません。初回ログインは手動ブラウザで行います。
 - 本ツールは受信メッセージに対する防御目的であり、能動的な新規メッセージ送信機能は持っていません。
+
+---
+
+## スコープ外の項目 (Non-Goals)
+
+本プロジェクトでは、安全性およびプライバシー保護の観点から以下の機能を明示的にスコープ外（Non-goals）としています：
+
+- **友人・既存連絡先への自動返信**: 通常受信トレイの既知のスレッドには一切干渉しません（メッセージリクエストのみを対象）。
+- **CAPTCHA・MFA・ボット検知の回避**: Metaのセキュリティ機構を迂回する機能は実装しません。ログインや二要素認証はユーザー本人が手動ブラウザで行います。
+- **能動的な新規DM送信・営業自動化**: 相手から受信したメッセージへの防壁・応答に限定し、自分から新規スレッドを開始する営業・送信機能は提供しません。
+- **本人になりすました合意・意思決定**: 所有者の意見代弁、契約締結、面会受諾、金銭授受の約束は行いません。
+
+---
+
+## ロードマップ (Roadmap)
+
+- [x] **v0 (Current)**: Message Requests 検知、Gemini 3.6 Flash トリアージ、Reply Guard による PII/合意/URL 遮断、Controlled Reply、ローカル Web ダッシュボード。
+- [ ] **v1 (Planned)**:
+  - 複数 LLM プロバイダ対応（ローカル Ollama / Claude / OpenAI の抽象化切り替え）。
+  - Slack / Webhook 経由の `HUMAN_REQUIRED` 即時モバイル通知連携。
+  - セレクタ自己修復 / ヘルスチェック機能（DOM 変更の早期自動検知）。
 
 ---
 
