@@ -136,6 +136,10 @@ ${incomingMessage}`;
       const parsed = JSON.parse(rawJson);
 
       // Sanitize fields for schema validation
+      if (parsed.reply === null || parsed.reply === undefined) {
+        delete parsed.reply;
+      }
+
       if (parsed.action === 'IGNORE') {
         delete parsed.reply;
       } else if (

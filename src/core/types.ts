@@ -42,12 +42,12 @@ export const IgnoreSchema = BaseClassificationSchema.extend({
 
 export const HumanRequiredSchema = BaseClassificationSchema.extend({
   action: z.literal('HUMAN_REQUIRED'),
-  reply: z.string().optional(),
+  reply: z.string().nullable().optional().transform((v) => v ?? undefined),
 });
 
 export const BlockRecommendedSchema = BaseClassificationSchema.extend({
   action: z.literal('BLOCK_RECOMMENDED'),
-  reply: z.string().optional(),
+  reply: z.string().nullable().optional().transform((v) => v ?? undefined),
 });
 
 export const ClassificationResultSchema = z.discriminatedUnion('action', [

@@ -7,18 +7,21 @@ import {
 } from './channels/messenger/watcher.js';
 import {
   assertNotPaused,
+  FirewallPipeline,
   getConfig,
+  HumanFirewallCore,
   isSystemPaused,
   logEvent,
   ThreadStore,
 } from './core/index.js';
+import { GeminiProvider } from './llm/gemini.js';
 
 export async function runWatcherOnce(): Promise<void> {
   const config = getConfig();
   const paused = isSystemPaused();
 
   console.log('====================================================');
-  console.log('🛡️  Messenger Human Firewall (Phase 2: Watcher)     🛡️');
+  console.log('🛡️  Messenger Human Firewall (Phase 4: Dry Run)    🛡️');
   console.log('====================================================');
   console.log(`[Config] Dry Run Mode  : ${config.DRY_RUN} (No message will be sent)`);
   console.log(`[Config] Paused Status : ${paused}`);
@@ -38,6 +41,9 @@ export async function runWatcherOnce(): Promise<void> {
 
   const userDataDir = path.resolve(process.cwd(), config.BROWSER_USER_DATA_DIR);
   const store = new ThreadStore(config.DATABASE_PATH);
+  const gemini = new GeminiProvider();
+  const firewallCore = new HumanFirewallCore(gemini, gemini);
+  const pipeline = new FirewallPipeline(firewallCore, store);
 
   let context: BrowserContext | null = null;
   try {
@@ -67,12 +73,15 @@ export async function runWatcherOnce(): Promise<void> {
     console.log(`\n📊 Scan completed. Detected ${scanned.length} eligible unread thread(s).`);
 
     for (const thread of scanned) {
-      console.log('----------------------------------------------------');
-      console.log(`[Dry Run Detected] Thread ID Hash: ${thread.threadHash.slice(0, 12)}...`);
-      console.log(`                   Last Msg Hash : ${thread.lastMessageHash.slice(0, 12)}...`);
-      console.log(`                   Eligibility   : ${thread.eligibility.eligible ? 'PASS' : 'BLOCKED'}`);
-      console.log('                   Action (Dry Run): READY FOR LLM CLASSIFICATION (Phase 3)');
-      console.log('----------------------------------------------------');
+      assertNotPaused('Processing Scanned Thread');
+
+      await pipeline.handleIncomingMessage({
+        threadId: thread.threadId,
+        threadHash: thread.threadHash,
+        senderIdHash: thread.senderIdHash,
+        lastMessageHash: thread.lastMessageHash,
+        incomingText: thread.lastIncomingText,
+      });
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

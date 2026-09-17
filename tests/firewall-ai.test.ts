@@ -157,5 +157,5 @@ describe('Live Gemini Provider Integration (with API Key)', () => {
     expect(reply.length).toBeGreaterThan(0);
     // Must contain a question mark (Japanese or Western)
     expect(reply).toMatch(/[？?]/);
-  }, 15000);
+  }, 30000);
 });
