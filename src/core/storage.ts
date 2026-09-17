@@ -123,6 +123,46 @@ export class ThreadStore {
     return thread.lastMessageHash === messageHash;
   }
 
+  public listThreads(): ThreadState[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM threads ORDER BY last_seen DESC LIMIT 100
+    `);
+
+    const rows = stmt.all() as {
+      thread_id: string;
+      sender_id_hash: string;
+      first_seen: number;
+      last_seen: number;
+      last_message_hash: string;
+      mode: string;
+      message_count: number;
+      reply_count: number;
+      risk_score: number;
+      paused: number;
+      human_required: number;
+    }[];
+
+    return rows.map((row) => ({
+      threadId: row.thread_id,
+      senderIdHash: row.sender_id_hash,
+      firstSeen: row.first_seen,
+      lastSeen: row.last_seen,
+      lastMessageHash: row.last_message_hash,
+      mode: row.mode as Action,
+      messageCount: row.message_count,
+      replyCount: row.reply_count ?? 0,
+      riskScore: row.risk_score,
+      paused: Boolean(row.paused),
+      humanRequired: Boolean(row.human_required),
+    }));
+  }
+
+  public setThreadPause(threadId: string, paused: boolean): boolean {
+    const stmt = this.db.prepare('UPDATE threads SET paused = ? WHERE thread_id = ?');
+    const res = stmt.run(paused ? 1 : 0, threadId);
+    return res.changes > 0;
+  }
+
   public close(): void {
     this.db.close();
   }

@@ -15,6 +15,7 @@
     "pause": "tsx src/cli/control.ts pause",
     "resume": "tsx src/cli/control.ts resume",
     "status": "tsx src/cli/control.ts status",
+    "dashboard": "tsx src/dashboard/index.ts",
     "login": "tsx src/cli/login.ts"
   },
   "keywords": [
