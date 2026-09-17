@@ -1,4 +1,4 @@
-import { getConfig, isSystemPaused, setSystemPause } from '../config/index.js';
+import { getConfig, isSystemPaused, setSystemPause } from '../core/index.js';
 
 const command = process.argv[2];
 

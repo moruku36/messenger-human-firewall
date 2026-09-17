@@ -18,6 +18,24 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 
 ---
 
+## 実装ステータス (Implementation Status)
+
+| Phase | 内容 | 状態 | 備考 |
+| :--- | :--- | :--- | :--- |
+| **Phase 1** | **Skeleton & Safety Foundations** | **完了 (Completed)** | 型定義、Reply Guard、Kill Switch、厳格セレクタ、CI |
+| **Phase 2** | **Browser Watcher** | 未着手 (Next) | Playwright監視、新着・未読検知、Fake HTMLテスト |
+| **Phase 3** | **Human Firewall AI** | 未着手 | LLM分類・返信生成プロバイダー実装 |
+| **Phase 4** | **Dry Run Integration** | 未着手 | 監視〜分類〜返信生成〜ガード統合 (送信なし) |
+| **Phase 5** | **Controlled Reply** | 未着手 | 承認後のみ制限付き自動送信 |
+| **Phase 6** | **Time Waster State Machine** | 未着手 | 会話継続ステートマシン |
+| **Phase 7** | **Local Dashboard** | 未着手 | localhost:3000 管理画面 |
+
+> [!NOTE]
+> 現在のリポジトリは **Phase 1 (Skeleton)** 完了段階です。`src/index.ts` は設定ロード、事前安全ガード確認、初期化ログを出力する検証エントリポイントであり、ブラウザ常駐監視ループは **Phase 2** で統合されます。
+
+
+---
+
 ## 動作モード
 
 ### 1. AI Receptionist
@@ -118,8 +136,8 @@ cp .env.example .env
 
 ## 使い方
 
-### 1. Dry Run 実行 (安全検証)
-デフォルトは `DRY_RUN=true` です。ブラウザでの監視およびLLM分類・返信生成まで行いますが、Messengerへの実際の送信は行われません。
+### 1. 起動・初期化確認 (Phase 1)
+現在は Phase 1 (Skeleton) です。設定ロード、事前安全ガード、Kill Switchの検証を行い、ログを出力します。
 
 ```bash
 npm run dev
