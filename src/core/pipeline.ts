@@ -80,14 +80,33 @@ export class FirewallPipeline {
     }
 
     // 3. Process via Firewall Core (Classification + Generation + Reply Guard)
-    const result = await this.firewall.processMessage(
-      incomingText,
-      threadHash,
-      historySummary,
-      initialReplyCount,
-    );
+    let result: FirewallProcessResult;
+    try {
+      result = await this.firewall.processMessage(
+        incomingText,
+        threadHash,
+        historySummary,
+        initialReplyCount,
+      );
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isQuotaError = errMsg.includes('Daily LLM request quota reached');
+      logEvent({
+        event: isQuotaError ? 'RATE_LIMITED' : 'ERROR',
+        threadHash,
+        reasonCode: isQuotaError ? 'LLM_DAILY_QUOTA_EXCEEDED' : 'LLM_PROCESSING_ERROR',
+      });
 
-    this.store.recordLlmRequest();
+      result = {
+        classification: {
+          category: 'UNKNOWN',
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reason: `LLM execution halted: ${errMsg}`,
+        },
+        finalDecision: 'HUMAN_REQUIRED',
+      };
+    }
 
     const now = Date.now();
     const messageCount = (existing?.messageCount || 0) + 1;
