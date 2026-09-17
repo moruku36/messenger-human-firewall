@@ -48,6 +48,12 @@ export class ThreadStore {
         timestamp INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_replies_thread_time ON replies(thread_id, timestamp);
+
+      CREATE TABLE IF NOT EXISTS llm_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_llm_requests_time ON llm_requests(timestamp);
     `);
 
     // Ensure reply_count column exists if table existed previously
@@ -181,6 +187,20 @@ export class ThreadStore {
       'SELECT COUNT(*) as count FROM replies WHERE thread_id = ? AND timestamp > ?'
     );
     const row = stmt.get(threadId, threshold);
+    return row ? row.count : 0;
+  }
+
+  public recordLlmRequest(timestamp = Date.now()): void {
+    const stmt = this.db.prepare('INSERT INTO llm_requests (timestamp) VALUES (?)');
+    stmt.run(timestamp);
+  }
+
+  public getRecentLlmRequestCount(windowMs = 24 * 60 * 60 * 1000): number {
+    const threshold = Date.now() - windowMs;
+    const stmt = this.db.prepare<[number], { count: number }>(
+      'SELECT COUNT(*) as count FROM llm_requests WHERE timestamp > ?'
+    );
+    const row = stmt.get(threshold);
     return row ? row.count : 0;
   }
 

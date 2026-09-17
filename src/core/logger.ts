@@ -3,13 +3,18 @@ import {
   SafeLogDetailsSchema,
 } from './types.js';
 
-function sanitizeReason(rawReason?: string): string | undefined {
-  if (!rawReason) return undefined;
-  const singleLine = rawReason.replace(/[\r\n\t]+/g, ' ').trim();
-  if (singleLine.length > 80) {
-    return `${singleLine.slice(0, 77)}...`;
+function extractReasonCode(entry: Omit<ObservabilityLog, 'timestamp'>): string | undefined {
+  if (entry.reasonCode) {
+    return entry.reasonCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '_').slice(0, 32);
   }
-  return singleLine;
+  if (entry.category) {
+    return `${entry.category.toUpperCase()}_CLASSIFIED`;
+  }
+  if (entry.event === 'LOGIN_REQUIRED') return 'LOGIN_REQUIRED';
+  if (entry.event === 'ERROR') return 'RUNTIME_ERROR';
+  if (entry.event === 'RATE_LIMITED') return 'RATE_LIMIT_EXCEEDED';
+  if (entry.event === 'REPLY_BLOCKED') return 'REPLY_GUARD_BLOCKED';
+  return undefined;
 }
 
 /**
@@ -37,7 +42,7 @@ export function logEvent(entry: Omit<ObservabilityLog, 'timestamp'>): void {
     category: entry.category,
     action: entry.action,
     risk: entry.risk,
-    reason: sanitizeReason(entry.reason),
+    reasonCode: extractReasonCode(entry),
     details: safeDetails,
   };
 
