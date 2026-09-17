@@ -29,7 +29,7 @@ export const ConfigSchema = z.object({
   LLM_PROVIDER: z.enum(['gemini', 'openai']).default('gemini'),
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   BROWSER_USER_DATA_DIR: z.string().default('data/browser-profile'),
   HEADLESS: BooleanStringSchema.default('false'),

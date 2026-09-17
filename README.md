@@ -24,14 +24,14 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | **Skeleton & Safety Foundations** | **完了 (Completed)** | 型定義、Reply Guard、Kill Switch、厳格セレクタ、CI |
 | **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
-| **Phase 3** | **Human Firewall AI** | 未着手 (Next) | LLM分類・返信生成プロバイダー実装 |
-| **Phase 4** | **Dry Run Integration** | 未着手 | 監視〜分類〜返信生成〜ガード統合 (送信なし) |
+| **Phase 3** | **Human Firewall AI** | **完了 (Completed)** | Gemini 3.6 Flash 分類・返信生成、Structured Output、Reply Guard統合 |
+| **Phase 4** | **Dry Run Integration** | 未着手 (Next) | 監視〜分類〜返信生成〜ガード統合 (送信なし) |
 | **Phase 5** | **Controlled Reply** | 未着手 | 承認後のみ制限付き自動送信 |
 | **Phase 6** | **Time Waster State Machine** | 未着手 | 会話継続ステートマシン |
 | **Phase 7** | **Local Dashboard** | 未着手 | localhost:3000 管理画面 |
 
 > [!NOTE]
-> 現在のリポジトリは **Phase 2 (Browser Watcher)** 完了段階です。`src/index.ts` は Persistent Context (`data/browser-profile`) を使って Message Requests をスキャンし、未読メッセージの抽出と重複排除（Dry Run）を行います。実際の Messenger 送信は行われません。
+> 現在のリポジトリは **Phase 3 (Human Firewall AI)** 完了段階です。Gemini 3.6 Flash による受信メッセージ分類（NORMAL/SALES/SPAM/SCAM/HARASSMENT/UNKNOWN）および返信生成（Receptionist / Time Waster）と Reply Guard による検査が動作します。次フェーズで Watcher と AI を統合（Dry Run）します。
 
 
 ---

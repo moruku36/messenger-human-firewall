@@ -1,0 +1,120 @@
+import { inspectReply, type ReplyGuardResult } from './reply-guard.js';
+import type { Action, ClassificationResult } from './types.js';
+import type { LLMClassifier, LLMReplyGenerator } from './llm.js';
+import { logEvent } from './logger.js';
+
+export interface FirewallProcessResult {
+  classification: ClassificationResult;
+  candidateReply?: string;
+  guardResult?: ReplyGuardResult;
+  finalDecision: 'SEND_ALLOWED' | 'REPLY_BLOCKED' | 'IGNORED' | 'HUMAN_REQUIRED' | 'BLOCK_RECOMMENDED';
+}
+
+export class HumanFirewallCore {
+  constructor(
+    private classifier: LLMClassifier,
+    private generator: LLMReplyGenerator,
+  ) {}
+
+  /**
+   * Processes an incoming message:
+   * 1. Classify via LLM
+   * 2. Generate candidate reply (if POLITE_REPLY or TIME_WASTER)
+   * 3. Run candidate reply through Reply Guard (PII, URL, commitment filters)
+   * 4. Return structured decision
+   */
+  public async processMessage(
+    incomingMessage: string,
+    threadHash: string,
+    historySummary?: string,
+  ): Promise<FirewallProcessResult> {
+    // 1. Classification
+    const classification = await this.classifier.classify(incomingMessage, historySummary);
+
+    logEvent({
+      event: 'CLASSIFIED',
+      threadHash,
+      category: classification.category,
+      action: classification.action,
+      risk: classification.risk,
+      reason: classification.reason,
+    });
+
+    // 2. Action branching
+    if (classification.action === 'IGNORE') {
+      return {
+        classification,
+        finalDecision: 'IGNORED',
+      };
+    }
+
+    if (classification.action === 'HUMAN_REQUIRED') {
+      logEvent({
+        event: 'HUMAN_REQUIRED',
+        threadHash,
+        category: classification.category,
+        action: classification.action,
+        risk: classification.risk,
+        reason: classification.reason,
+      });
+      return {
+        classification,
+        finalDecision: 'HUMAN_REQUIRED',
+      };
+    }
+
+    if (classification.action === 'BLOCK_RECOMMENDED') {
+      return {
+        classification,
+        finalDecision: 'BLOCK_RECOMMENDED',
+      };
+    }
+
+    // 3. Reply Generation (POLITE_REPLY or TIME_WASTER)
+    const replyAction: Extract<Action, 'POLITE_REPLY' | 'TIME_WASTER'> =
+      classification.action === 'POLITE_REPLY' ? 'POLITE_REPLY' : 'TIME_WASTER';
+
+    let reply = classification.reply;
+    if (!reply) {
+      reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary);
+    }
+
+    logEvent({
+      event: 'REPLY_GENERATED',
+      threadHash,
+      action: replyAction,
+      details: {
+        replyLength: reply.length,
+        step: 'REPLY_GENERATED',
+      },
+    });
+
+    // 4. Mandatory Pre-Send Gate: Reply Guard inspection
+    const guardResult = inspectReply(reply);
+
+    if (!guardResult.allowed) {
+      logEvent({
+        event: 'REPLY_BLOCKED',
+        threadHash,
+        details: {
+          blockReason: guardResult.blockedReason,
+          ruleTriggered: guardResult.ruleTriggered,
+        },
+      });
+
+      return {
+        classification,
+        candidateReply: reply,
+        guardResult,
+        finalDecision: 'REPLY_BLOCKED',
+      };
+    }
+
+    return {
+      classification,
+      candidateReply: reply,
+      guardResult,
+      finalDecision: 'SEND_ALLOWED',
+    };
+  }
+}
