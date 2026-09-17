@@ -2,6 +2,10 @@
 
 ## 1. System Topology & Trust Boundary
 
+<p align="center">
+  <img src="assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
+</p>
+
 ```text
 ┌────────────────────────────────────────────────────────────┐
 │ Local Host Machine (Trusted & Controlled Environment)      │

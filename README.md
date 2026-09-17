@@ -26,6 +26,12 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 
 ## 処理パイプライン (Target Architecture)
 
+<p align="center">
+  <img src="docs/assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
+</p>
+
+### フローチャート (Pipeline Flowchart)
+
 ```mermaid
 flowchart TD
     subgraph Browser["Playwright Browser (Local)"]
