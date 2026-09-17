@@ -36,11 +36,19 @@ export class ThreadStore {
         last_message_hash TEXT NOT NULL,
         mode TEXT NOT NULL,
         message_count INTEGER NOT NULL DEFAULT 0,
+        reply_count INTEGER NOT NULL DEFAULT 0,
         risk_score INTEGER NOT NULL DEFAULT 0,
         paused INTEGER NOT NULL DEFAULT 0,
         human_required INTEGER NOT NULL DEFAULT 0
       );
     `);
+
+    // Ensure reply_count column exists if table existed previously
+    const columns = this.db.prepare("PRAGMA table_info('threads')").all() as { name: string }[];
+    const hasReplyCount = columns.some((col) => col.name === 'reply_count');
+    if (!hasReplyCount) {
+      this.db.exec('ALTER TABLE threads ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0;');
+    }
   }
 
   public getThread(threadId: string): ThreadState | null {
@@ -52,6 +60,7 @@ export class ThreadStore {
       last_message_hash: string;
       mode: string;
       message_count: number;
+      reply_count: number;
       risk_score: number;
       paused: number;
       human_required: number;
@@ -68,6 +77,7 @@ export class ThreadStore {
       lastMessageHash: row.last_message_hash,
       mode: row.mode as Action,
       messageCount: row.message_count,
+      replyCount: row.reply_count ?? 0,
       riskScore: row.risk_score,
       paused: Boolean(row.paused),
       humanRequired: Boolean(row.human_required),
@@ -78,14 +88,15 @@ export class ThreadStore {
     const stmt = this.db.prepare(`
       INSERT INTO threads (
         thread_id, sender_id_hash, first_seen, last_seen,
-        last_message_hash, mode, message_count, risk_score,
+        last_message_hash, mode, message_count, reply_count, risk_score,
         paused, human_required
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET
         last_seen = excluded.last_seen,
         last_message_hash = excluded.last_message_hash,
         mode = excluded.mode,
         message_count = excluded.message_count,
+        reply_count = excluded.reply_count,
         risk_score = excluded.risk_score,
         paused = excluded.paused,
         human_required = excluded.human_required
@@ -99,6 +110,7 @@ export class ThreadStore {
       state.lastMessageHash,
       state.mode,
       state.messageCount,
+      state.replyCount ?? 0,
       state.riskScore,
       state.paused ? 1 : 0,
       state.humanRequired ? 1 : 0,

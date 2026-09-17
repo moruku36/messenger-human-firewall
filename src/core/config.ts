@@ -34,7 +34,9 @@ export const ConfigSchema = z.object({
   BROWSER_USER_DATA_DIR: z.string().default('data/browser-profile'),
   HEADLESS: BooleanStringSchema.default('false'),
   MAX_REPLIES_PER_THREAD_PER_DAY: PositiveIntSchema(1, 100, '20'),
-  MIN_REPLY_INTERVAL_SECONDS: PositiveIntSchema(5, 300, '15'),
+  MIN_REPLY_INTERVAL_SECONDS: PositiveIntSchema(1, 300, '15'),
+  ALLOWED_TEST_THREAD_ID: z.string().optional(),
+  CONTROLLED_MAX_REPLIES: PositiveIntSchema(1, 20, '3'),
   DATABASE_PATH: z.string().default('data/firewall.db'),
   PORT: PositiveIntSchema(1024, 65535, '3000'),
 });

@@ -133,6 +133,29 @@
         });
       });
     });
+
+    // Send button click simulation
+    document.getElementById('send-btn').addEventListener('click', () => {
+      const box = document.getElementById('message-box');
+      const text = box.innerText.trim() || box.textContent.trim();
+      if (!text) return;
+
+      const msgContainer = document.getElementById('messages');
+      const row = document.createElement('div');
+      row.className = 'message-row outgoing';
+      row.setAttribute('role', 'row');
+      row.setAttribute('data-testid', 'outgoing_message');
+      row.setAttribute('aria-label', 'あなたが送信');
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.setAttribute('dir', 'auto');
+      bubble.textContent = text;
+
+      row.appendChild(bubble);
+      msgContainer.appendChild(row);
+      box.innerText = '';
+    });
   </script>
 </body>
 </html>

@@ -7,3 +7,4 @@ export * from './logger.js';
 export * from './storage.js';
 export * from './firewall.js';
 export * from './pipeline.js';
+export * from './controlled-limiter.js';

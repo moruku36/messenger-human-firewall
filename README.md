@@ -26,12 +26,12 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 | **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
 | **Phase 3** | **Human Firewall AI** | **完了 (Completed)** | Gemini 3.6 Flash 分類・返信生成、Structured Output、Reply Guard統合 |
 | **Phase 4** | **Dry Run Integration** | **完了 (Completed)** | 全パイプライン統合 (DRY_RUN=true)、10シナリオテスト検証、ユーザー確認要求 |
-| **Phase 5** | **Controlled Reply** | 未着手 (Next) | 承認後のみ制限付き自動送信 |
-| **Phase 6** | **Time Waster State Machine** | 未着手 | 会話継続ステートマシン |
+| **Phase 5** | **Controlled Reply** | **完了 (Completed)** | 指定スレッド限定送信、最大3通制限、自動停止、Playwright入力・送信 |
+| **Phase 6** | **Time Waster State Machine** | 未着手 (Next) | 会話継続ステートマシン |
 | **Phase 7** | **Local Dashboard** | 未着手 | localhost:3000 管理画面 |
 
 > [!NOTE]
-> 現在のリポジトリは **Phase 4 (Dry Run Integration)** 完了段階です。Message Requests のスキャンから LLM 分類、返信生成、Reply Guard 検査、SQLite 状態記録、コンソール出力までの完全パイプラインが統合されています。`DRY_RUN=true` により実際の Messenger 送信は行われません。次フェーズ（Phase 5）はユーザー承認後に実施されます。
+> 現在のリポジトリは **Phase 5 (Controlled Reply)** 完了段階です。指定された検証用テストスレッド（`ALLOWED_TEST_THREAD_ID`）に限定し、スレッドあたり最大3通までの安全制限、即時自動停止（Auto-pause）、物理送信検証テスト、Kill Switch即時停止ゲートがすべて実装・検証されています。全51テスト通過・型検査・Lint正常。次フェーズは **Phase 6 (Time Waster State Machine)** です。
 
 
 ---

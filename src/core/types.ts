@@ -109,6 +109,7 @@ export interface ThreadState {
   lastMessageHash: string;
   mode: Action;
   messageCount: number;
+  replyCount?: number;
   riskScore: number;
   paused: boolean;
   humanRequired: boolean;

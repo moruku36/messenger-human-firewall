@@ -1,9 +1,12 @@
+import type { Page } from 'playwright';
 import { assertNotPaused } from './killswitch.js';
 import { getConfig } from './config.js';
 import type { HumanFirewallCore, FirewallProcessResult } from './firewall.js';
 import type { ThreadStore } from './storage.js';
 import { logEvent } from './logger.js';
 import type { Action } from './types.js';
+import { checkControlledReplyEligibility } from './controlled-limiter.js';
+import { sendMessageToActiveThread } from '../channels/messenger/sender.js';
 
 export interface PipelineExecutionOptions {
   threadId: string;
@@ -12,6 +15,7 @@ export interface PipelineExecutionOptions {
   lastMessageHash: string;
   incomingText: string;
   historySummary?: string;
+  page?: Page;
 }
 
 export class FirewallPipeline {
@@ -22,12 +26,12 @@ export class FirewallPipeline {
 
   /**
    * Executes the full pipeline for a detected message request.
-   * Enforces Kill Switch -> Deduplication -> LLM Classification -> Reply Generation -> Reply Guard -> Dry Run Output.
+   * Enforces Kill Switch -> Deduplication -> LLM Classification -> Reply Generation -> Reply Guard -> Controlled Send / Dry Run.
    */
   public async handleIncomingMessage(
     options: PipelineExecutionOptions,
   ): Promise<FirewallProcessResult | null> {
-    const { threadHash, senderIdHash, lastMessageHash, incomingText, historySummary } = options;
+    const { threadId, threadHash, senderIdHash, lastMessageHash, incomingText, historySummary, page } = options;
     const config = getConfig();
 
     // 1. Mandatory Kill Switch Gate
@@ -41,9 +45,51 @@ export class FirewallPipeline {
     // 3. Process via Firewall Core (Classification + Generation + Reply Guard)
     const result = await this.firewall.processMessage(incomingText, threadHash, historySummary);
 
-    // 4. Update SQLite State Store (never storing raw incoming or outgoing message text)
     const existing = this.store.getThread(threadHash);
     const now = Date.now();
+    const messageCount = (existing?.messageCount || 0) + 1;
+    let replyCount = existing?.replyCount || 0;
+
+    // 4. Controlled Reply Decision
+    let actuallySent = false;
+    let controlledReason: string | undefined;
+
+    if (!config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED' && result.candidateReply && page) {
+      const eligibility = checkControlledReplyEligibility(threadId, threadHash, this.store);
+
+      if (eligibility.allowed) {
+        assertNotPaused('Controlled Reply Pre-Send');
+        await sendMessageToActiveThread(page, result.candidateReply);
+        actuallySent = true;
+        replyCount += 1;
+
+        logEvent({
+          event: 'REPLY_SENT',
+          threadHash,
+          action: result.classification.action,
+          details: {
+            step: 'DISPATCHED_TO_MESSENGER',
+            messageCount: replyCount,
+          },
+        });
+      } else {
+        controlledReason = eligibility.reason;
+        logEvent({
+          event: 'RATE_LIMITED',
+          threadHash,
+          details: {
+            blockReason: eligibility.reason,
+            messageCount: replyCount,
+          },
+        });
+      }
+    } else if (config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED') {
+      replyCount += 1;
+    }
+
+    // 5. Auto-pause thread if reply limit is reached
+    const reachedLimit = replyCount >= config.CONTROLLED_MAX_REPLIES;
+    const isPaused = (existing?.paused || false) || reachedLimit;
 
     this.store.upsertThread({
       threadId: threadHash,
@@ -52,25 +98,30 @@ export class FirewallPipeline {
       lastSeen: now,
       lastMessageHash,
       mode: result.classification.action as Action,
-      messageCount: (existing?.messageCount || 0) + 1,
+      messageCount,
+      replyCount,
       riskScore: result.classification.risk,
-      paused: existing?.paused || false,
+      paused: isPaused,
       humanRequired: result.finalDecision === 'HUMAN_REQUIRED',
     });
 
-    // 5. Output Display (Dry Run Mode)
-    this.renderDryRunOutput(options, result, config.DRY_RUN);
+    // 6. Output Display
+    this.renderExecutionOutput(options, result, config.DRY_RUN, actuallySent, controlledReason, replyCount, config.CONTROLLED_MAX_REPLIES);
 
     return result;
   }
 
-  private renderDryRunOutput(
+  private renderExecutionOutput(
     options: PipelineExecutionOptions,
     result: FirewallProcessResult,
     isDryRun: boolean,
+    actuallySent: boolean,
+    controlledReason: string | undefined,
+    currentCount: number,
+    maxReplies: number,
   ): void {
     console.log('\n====================================================');
-    console.log('🛡️  FIREWALL INTERCEPTION & DECISION (DRY RUN)');
+    console.log(`🛡️  FIREWALL INTERCEPTION & DECISION (${actuallySent ? 'LIVE SENT' : (isDryRun ? 'DRY RUN' : 'CONTROLLED BLOCKED')})`);
     console.log('====================================================');
     console.log(`[Thread ID Hash] : ${options.threadHash.slice(0, 16)}...`);
     console.log(`[Classification] : ${result.classification.category} (Risk: ${result.classification.risk}/100)`);
@@ -79,25 +130,19 @@ export class FirewallPipeline {
 
     if (result.candidateReply) {
       console.log('----------------------------------------------------');
-      console.log('💬 Generated Candidate Reply:');
+      console.log(`💬 Candidate Reply (${actuallySent ? '✅ SENT TO MESSENGER' : 'NOT SENT'}):`);
       console.log(`   「${result.candidateReply}」`);
       console.log('----------------------------------------------------');
     }
 
     console.log(`[Reply Guard]    : ${result.guardResult ? (result.guardResult.allowed ? 'PASSED (Clean)' : `BLOCKED (${result.guardResult.ruleTriggered}: ${result.guardResult.blockedReason})`) : 'NOT_APPLICABLE'}`);
-    console.log(`[Final Action]   : ${result.finalDecision}`);
-    console.log(`[Execution Mode] : ${isDryRun ? 'DRY_RUN=true (NO actual reply sent to Messenger)' : 'LIVE (Controlled Reply)'}`);
-    console.log('====================================================\n');
+    console.log(`[Replies Counter]: ${currentCount} / ${maxReplies} (Limit per thread)`);
 
-    if (result.finalDecision === 'SEND_ALLOWED') {
-      logEvent({
-        event: 'REPLY_SENT',
-        threadHash: options.threadHash,
-        action: result.classification.action,
-        details: {
-          step: isDryRun ? 'DRY_RUN_LOGGED' : 'SENT_TO_BROWSER',
-        },
-      });
+    if (controlledReason) {
+      console.log(`[Controlled Gate]: BLOCKED -> ${controlledReason}`);
     }
+
+    console.log(`[Execution Mode] : ${isDryRun ? 'DRY_RUN=true (Console only)' : (actuallySent ? 'LIVE_DISPATCHED' : 'CONTROLLED_HELD')}`);
+    console.log('====================================================\n');
   }
 }
