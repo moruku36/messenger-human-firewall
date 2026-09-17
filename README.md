@@ -16,6 +16,67 @@ AIは所有者本人を演じるのではなく、**自動応答アシスタン�
 Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ 必要な場合のみ人間へエスカレーション
 ```
 
+### なぜ一律ブロックしないのか？ (Why not just block?)
+「見知らぬ相手からのメッセージを一律ブロックすればよいのでは？」という疑問が生じるかもしれません。  
+しかし、SNS上の見知らぬ相手には、**新規ビジネスの問い合わせ、取材依頼、旧友からの久しぶりの連絡**など、見落とすべきではない正当なコンタクトが含まれます。  
+
+本プロジェクトは単なるスパムブロッカーではなく、**「有益な連絡は丁寧に受付（AI Receptionist）しつつ、悪質な詐欺や営業勧誘には愛想よく質問を返して時間を浪費させ無力化する（AI Time Waster）」** という、AIを活用したプロアクティブな「多層防御（Defense-in-Depth）人間防壁」の技術検証リポジトリです。
+
+---
+
+## 処理パイプライン (Target Architecture)
+
+```mermaid
+flowchart TD
+    subgraph Browser["Playwright Browser (Local)"]
+        MR["Messenger Message Requests"]
+    end
+
+    subgraph Watcher["1. Browser Watcher"]
+        Detect["新着未読検知・スレッドID抽出"]
+        Dedup["SQLite 重複排除 (SHA-256)"]
+    end
+
+    subgraph LLM["2. Human Firewall AI (Google Gemini 3.6 Flash)"]
+        Classify{"トリアージ分類<br/>(Structured Output)"}
+    end
+
+    subgraph Actions["3. Decision & State Machine"]
+        Ignore["何もしない (IGNORE)"]
+        Escalate["人間要対応 (HUMAN_REQUIRED)"]
+        BlockRec["ブロック推奨記録 (BLOCK)"]
+        StateMachine["State Machine<br/>(AI Receptionist / Time Waster)"]
+    end
+
+    subgraph Safety["4. Local Safety & Reply Guard"]
+        Guard{"Reply Guard 検査<br/>(PII / 金銭・合意 / URL)"}
+        Blocked["送信遮断 ➜ エスカレーション"]
+    end
+
+    subgraph SendGate["5. Controlled Send Gate"]
+        Limits{"多層安全ゲート<br/>・スレッド完全一致 & DOM再検証<br/>・15秒送信間隔<br/>・24hローリング上限<br/>・Kill Switch"}
+        Console["コンソール出力 (DRY_RUN=true)"]
+        Send["Messenger実送信 (DRY_RUN=false)"]
+    end
+
+    MR --> Detect
+    Detect --> Dedup
+    Dedup -->|新規メッセージ| Classify
+
+    Classify -->|スパム・宣伝| Ignore
+    Classify -->|緊急・脅威・クレデンシャル| Escalate
+    Classify -->|悪質詐欺| BlockRec
+    Classify -->|通常挨拶 / 投資・副業勧誘| StateMachine
+
+    StateMachine --> Guard
+    Guard -->|危険パターン検知| Blocked
+    Guard -->|安全判定 (Clean)| Limits
+
+    Limits -->|Dry Run| Console
+    Limits -->|Production / Test Thread| Send
+    Send -.->|DOM入力・送信| MR
+```
+
 ---
 
 ## 実装ステータス (Implementation Status)
@@ -229,3 +290,10 @@ npm run lint
 - Facebook MessengerのDOM構造の変更により、定期的なセレクタのメンテナンスが必要になる場合があります。
 - CAPTCHAや多要素認証（MFA）を自動で迂回することはポリシー上サポートしません。初回ログインは手動ブラウザで行います。
 - 本ツールは受信メッセージに対する防御目的であり、能動的な新規メッセージ送信機能は持っていません。
+
+---
+
+## ライセンス & パッケージ設計 (License & Design)
+
+- **ライセンス**: [MIT License](LICENSE)
+- **パッケージ設計**: 本プロジェクトはローカル常駐のCLI／デーモンアプリケーションであり、再利用可能なnpmライブラリパッケージではありません。意図しない npm レジストリへの誤公開（Accidental npm publish）を未然に防止するため、`package.json` には明示的に `"private": true` を設定しています。
