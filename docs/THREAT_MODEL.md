@@ -45,10 +45,11 @@
   - パスワード自動入力・CAPTCHA回避ツールは不使用（手動ログインのみ）。
   - リモート送信されるログにはトークンやクッキーを一切含めない。
 
-### 2.6 Infinite Reply Loop / Bot Ping-Pong
-- **脅威**: 相手もBotだった場合や自動応答同士で無限に返信し合い、API費用爆発やアカウント凍結を招く。
+### 2.6 Infinite Reply Loop & API Cost Explosion (無限ループ・API費用爆発)
+- **脅威**: 相手もBotだった場合や大量のリクエストメッセージが連続で届き、自動応答の応酬によってAPI費用が爆発したりアカウント凍結を招く。
 - **対策**:
-  - **Rate Limit**: 1スレッドあたり24時間で最大20返信の上限。
+  - **Thread Rate Limit**: 1スレッドあたり24時間で最大20返信のローリング上限（初期テストモードでは最大3通制限）。
+  - **Global LLM Daily Quota**: 1日あたりのLLM API総呼び出し回数ハードキャップ（`MAX_LLM_REQUESTS_PER_DAY`、デフォルト100回）。上限到達時は人間要対応へエスカレーションし、以後のLLM呼び出しを物理遮断。
   - **Interval**: 最小15秒以上の送信インターバルを強制。
   - 最大返信回数到達後は自動でスレッドを `paused` に遷移。
 
@@ -59,10 +60,11 @@
   - 通常受信トレイの既存スレッドは監視対象から除外。
   - 先に相手からメッセージが来た場合のみトリガー（こちらから新規スレッドを開始することは構造上不可能）。
 
-### 2.8 Unexpected DOM Change
-- **脅威**: Facebook MessengerのUI更新により、誤った要素をクリックしたり、意図しない相手に送信する。
+### 2.8 Unexpected DOM Change & Wrong-Thread Send (DOM変更・別スレッド誤送信)
+- **脅威**: Facebook MessengerのUI更新や非同期ローディングにより、別スレッドにフォーカスが当たった状態で誤ってメッセージを送信してしまう。
 - **対策**:
-  - `src/facebook/selectors.ts` による一元管理と、`role`, `aria-label` 等の安定したアクセシビリティセレクタのみを採用。
+  - `MESSENGER_SELECTORS` による一元管理と、`role`, `aria-label` 等の安定したアクセシビリティセレクタのみを採用。
+  - 送信直前の二重検証（`selectAndVerifyActiveThread`）: 対象スレッドIDの完全一致検証に加え、クリック後にDOM全体のアクティブ要素（`.active` / `[aria-selected="true"]`）を再取得し、対象スレッドと完全一致することを確認した上でなければ送信を実行しない。
   - 要素が見つからない場合や曖昧な場合は即時安全停止（Fail-Safe）。
 
 ### 2.9 API Cost Explosion & Kill Switch

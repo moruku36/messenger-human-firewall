@@ -27,7 +27,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "private": false,
+  "private": true,
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.7",

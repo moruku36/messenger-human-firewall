@@ -221,4 +221,29 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
       sendMessageToActiveThread(page, 'こんにちは', 'non-existent-thread-id-999')
     ).rejects.toThrow('Active thread verification failed');
   });
+
+  it('enforces MAX_LLM_REQUESTS_PER_DAY hard cap and blocks LLM calls when exceeded', async () => {
+    process.env.MAX_LLM_REQUESTS_PER_DAY = '2';
+    resetConfigForTest();
+
+    const mock = new ControlledMockProvider();
+    const firewall = new HumanFirewallCore(mock, mock);
+    const pipeline = new FirewallPipeline(firewall, store);
+
+    // Seed 2 past requests in rolling 24h
+    store.recordLlmRequest(Date.now() - 5000);
+    store.recordLlmRequest(Date.now() - 1000);
+
+    const result = await pipeline.handleIncomingMessage({
+      threadId: 'thread-quota-test',
+      threadHash: computeHash('thread-quota-test'),
+      senderIdHash: computeHash('sender-quota'),
+      lastMessageHash: computeHash('Quota test message'),
+      incomingText: '案件相談です',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.finalDecision).toBe('HUMAN_REQUIRED');
+    expect(result?.classification.reason).toContain('Daily LLM request quota reached');
+  });
 });
