@@ -81,6 +81,7 @@ export async function runWatcherOnce(): Promise<void> {
         senderIdHash: thread.senderIdHash,
         lastMessageHash: thread.lastMessageHash,
         incomingText: thread.lastIncomingText,
+        page,
       });
     }
   } catch (err: unknown) {

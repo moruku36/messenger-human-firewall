@@ -3,6 +3,15 @@ import {
   SafeLogDetailsSchema,
 } from './types.js';
 
+function sanitizeReason(rawReason?: string): string | undefined {
+  if (!rawReason) return undefined;
+  const singleLine = rawReason.replace(/[\r\n\t]+/g, ' ').trim();
+  if (singleLine.length > 80) {
+    return `${singleLine.slice(0, 77)}...`;
+  }
+  return singleLine;
+}
+
 /**
  * Emits structured observability events.
  * Whitelists allowed metadata to guarantee raw chat bodies or arbitrary blobs
@@ -28,7 +37,7 @@ export function logEvent(entry: Omit<ObservabilityLog, 'timestamp'>): void {
     category: entry.category,
     action: entry.action,
     risk: entry.risk,
-    reason: entry.reason,
+    reason: sanitizeReason(entry.reason),
     details: safeDetails,
   };
 

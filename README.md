@@ -20,6 +20,10 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 
 ## 実装ステータス (Implementation Status)
 
+> [!WARNING]
+> **Status: Experimental / v0**
+> 本リポジトリは実験的なリサーチ・防御プロトタイプです。公開環境や個人アカウントでの利用にあたっては、必ず `DRY_RUN=true` で動作確認を行い、Meta利用規約およびレートリミットを遵守してください。
+
 | Phase | 内容 | 状態 | 備考 |
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | **Skeleton & Safety Foundations** | **完了 (Completed)** | 型定義、Reply Guard、Kill Switch、厳格セレクタ、CI |
@@ -30,9 +34,48 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 | **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | ターン数（1〜3）に応じた状態遷移（Curious ➜ Deep Probing ➜ Hesitant Closing） |
 | **Phase 7** | **Local Dashboard** | **完了 (Completed)** | `npm run dashboard` (`http://localhost:3000`) 管理画面・Kill Switch切替・スレッド一覧・手動ポーズ |
 
-> [!NOTE]
-> 現在のリポジトリは **全フェーズ（Phase 1 〜 Phase 7）完了** 段階です。ゼロからの安全設計、Playwright ブラウザ監視、Gemini 3.6 Flash 分類・返信生成、Reply Guard セキュリティ防壁、Dry Run 検証、Controlled Reply 制限送信、Time Waster ステートマシン、およびローカルダッシュボード Web UI までの一貫した基盤が完成しています。全58テスト通過・型検査・Lint正常。
+---
 
+## 信頼境界とデータポリシー (Trust Boundary & Data Policy)
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Local Host Machine (Trusted & Controlled Boundary)       │
+│                                                          │
+│  [Playwright Browser]                                    │
+│    Messenger Message Requests (Incoming stranger text)   │
+│         │                                                │
+│         ▼                                                │
+│  [Browser Watcher & Validator]                           │
+│         │                                                │
+│         ├─────────────► [SQLite State Store]             │
+│         │                (Only sha256 hashes & counters) │
+│         │                                                │
+│         ▼ (HTTPS Outbound)                               │
+│  [Google Gemini API] ─────────────────────────────────┐  │
+│    Model: gemini-3.6-flash                            │  │
+│    Header: x-goog-api-key                             │  │
+│         │                                             │  │
+│         ▼ (Candidate text returned)                   │  │
+│  [Reply Guard (Regex / Safety Policy)]                │  │
+│         │                                             │  │
+│         ▼                                             │  │
+│  [Controlled Send Gate]                               │  │
+│    (Strict Thread Match, 15s interval, 24h limit)    │  │
+│         │                                             │  │
+│         ▼                                             │  │
+│  [Playwright Active Thread Dispatch]                  │  │
+└───────────────────────────────────────────────────────┼──┘
+                                                        ▼
+                                                Third-party Cloud
+                                                (Google Generative AI)
+```
+
+### データ送信とプライバシーに関する重要事項
+1. **外部送信対象**: トリアージおよび返信生成のため、受信した相手のメッセージ本文のみが HTTPS 経由で Google Gemini API に送信されます。
+2. **所有者情報の保護**: LLM に対し、ユーザー自身の個人情報（氏名、電話番号、住所、スケジュール等）はプロンプトに一切与えません（Zero-Context Prompting）。
+3. **ローカル永続化**: ローカル DB（SQLite）および標準出力ログにはメッセージ本文を平文で保存せず、SHA-256 ハッシュと安全なメタデータのみを記録します。
+4. **利用規約・データ保護**: ご利用の Google Cloud / Gemini API アカウントにおけるデータ保持・学習ポリシー（有料 Tier でのオプトアウト等）を事前にご確認ください。
 
 ---
 
@@ -55,57 +98,14 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 
 ---
 
-## Target Architecture
+## 多層防御アーキテクチャ (Defense-in-Depth)
 
-```mermaid
-flowchart TD
-    subgraph Facebook["Facebook Messenger"]
-        UI["Browser UI (Message Requests)"]
-    end
-
-    subgraph Host["Local Host (Playwright Context)"]
-        Browser["Persistent Browser Context<br/>(data/browser-profile)"]
-        Watcher["Message Watcher<br/>・新着検知<br/>・スレッド識別<br/>・重複排除"]
-        DB[("SQLite State Store<br/>(ハッシュ・カウンタのみ)")]
-    end
-
-    subgraph LLM["Human Firewall AI"]
-        Classifier["LLM Classification<br/>(Zod Validation)"]
-        Generator["LLM Reply Generator<br/>(Receptionist / Time Waster)"]
-    end
-
-    subgraph Safety["Safety & Guard"]
-        Guard["Reply Guard<br/>・PII検査 (メール・電話・住所)<br/>・金銭/契約/約束ブロック<br/>・URL除去"]
-        KillSwitch["Kill Switch & Rate Limit<br/>(PAUSE_ALL / 24h上限 / 15s間隔)"]
-    end
-
-    UI -->|新着検出| Browser
-    Browser --> Watcher
-    Watcher --> DB
-    Watcher --> Classifier
-
-    Classifier -->|IGNORE| End1["何もしない"]
-    Classifier -->|HUMAN_REQUIRED| Alert["人間要対応アラート"]
-    Classifier -->|BLOCK_RECOMMENDED| Block["ブロック推奨記録"]
-    Classifier -->|POLITE_REPLY / TIME_WASTER| Generator
-
-    Generator --> Guard
-    Guard -->|REPLY_BLOCKED| Alert
-    Guard -->|Pass| KillSwitch
-    KillSwitch -->|Dry Run: Console| DryRun["コンソール出力 (送信しない)"]
-    KillSwitch -->|Production: Send| Browser
-```
-
----
-
-## Safety Model & Security
-
-1. **ゼロ・ナレッジ**: LLMに所有者の個人情報（住所、電話番号、勤務先等）を一切渡さない。
-2. **Untrusted Input**: 相手からのメッセージはすべて未信頼の外部入力として扱い、Prompt Injectionを無力化。
-3. **二重防御 (Reply Guard)**: LLMが万一危険な返信（合意、個人情報、URL等）を生成しても送信直前で遮断。
-4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリに一切コミットしない。
-5. **暴走防止**: 1スレッドあたり1日最大20返信、最小15秒の送信間隔、緊急停止キルスイッチ。
-6. **本文非保存**: メッセージ本文をDBに平文保存せず、ログにも本文を出力しない（ハッシュとメタデータのみ記録）。
+1. **Zero-Context Prompting**: LLMに所有者の個人情報（住所、電話番号、勤務先等）を渡さないコンテキスト設計。
+2. **Untrusted Input 原則**: 相手からのメッセージは未信頼の外部入力として扱い、システムプロンプトの強固なガードレールでPrompt Injectionを抑制。
+3. **ローカル二重検査 (Reply Guard)**: LLMの出力結果を送信直前にローカルの正規表現・ルールベースで検査し、個人情報・URL・合意フレーズをブロック。
+4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
+5. **多層レートリミット**: スレッド検証（誤スレッド送信阻止）、1スレッド最大3返信（初期制限）、24時間ローリング上限、15秒間隔待機、緊急停止キルスイッチ。
+6. **ログ・DB ハッシュ化**: メッセージ本文をDBに平文保存せず、ログにもサニタイズされた要約とハッシュのみ記録。
 
 詳細な脅威分析は [THREAT_MODEL.md](docs/THREAT_MODEL.md) を参照してください。
 

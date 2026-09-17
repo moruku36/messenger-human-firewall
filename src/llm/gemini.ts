@@ -55,7 +55,7 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       this.model,
-    )}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    )}:generateContent`;
 
     const body: GeminiRequest = {
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
@@ -68,7 +68,10 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': this.apiKey,
+      },
       body: JSON.stringify(body),
     });
 

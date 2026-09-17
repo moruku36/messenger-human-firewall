@@ -98,7 +98,7 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
   });
 
   it('strictly enforces 3-reply maximum limit per thread and auto-pauses', async () => {
-    const targetThreadId = 'controlled-thread-001';
+    const targetThreadId = 'thread-1';
     const targetHash = computeHash(targetThreadId);
     process.env.ALLOWED_TEST_THREAD_ID = targetThreadId;
     process.env.DRY_RUN = 'false';
@@ -186,5 +186,39 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
         page,
       }),
     ).rejects.toThrow('PAUSED');
+  });
+
+  it('rejects partial substring matches strictly (strict equality only)', () => {
+    process.env.ALLOWED_TEST_THREAD_ID = 'thread-1';
+    resetConfigForTest();
+
+    // 'thread-10' or 'thread-1-extra' should NOT match 'thread-1'
+    const partialResult = checkControlledReplyEligibility('thread-10', computeHash('thread-10'), store);
+    expect(partialResult.allowed).toBe(false);
+    expect(partialResult.reason).toContain('THREAD_NOT_ALLOWED');
+  });
+
+  it('blocks dispatch when rolling 24h reply limit is exceeded', () => {
+    const targetThreadId = 'thread-1';
+    const targetHash = computeHash(targetThreadId);
+    process.env.ALLOWED_TEST_THREAD_ID = targetThreadId;
+    process.env.MAX_REPLIES_PER_THREAD_PER_DAY = '2';
+    process.env.CONTROLLED_MAX_REPLIES = '10';
+    resetConfigForTest();
+
+    // Record 2 replies in the last hour
+    const now = Date.now();
+    store.recordReply(targetHash, now - 60000);
+    store.recordReply(targetHash, now - 30000);
+
+    const result = checkControlledReplyEligibility(targetThreadId, targetHash, store);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('DAILY_LIMIT_REACHED');
+  });
+
+  it('fails safely when sending to a thread that does not exist in DOM', async () => {
+    await expect(
+      sendMessageToActiveThread(page, 'こんにちは', 'non-existent-thread-id-999')
+    ).rejects.toThrow('Active thread verification failed');
   });
 });

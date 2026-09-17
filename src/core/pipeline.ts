@@ -66,9 +66,10 @@ export class FirewallPipeline {
 
       if (eligibility.allowed) {
         assertNotPaused('Controlled Reply Pre-Send');
-        await sendMessageToActiveThread(page, result.candidateReply);
+        await sendMessageToActiveThread(page, result.candidateReply, threadId);
         actuallySent = true;
         replyCount += 1;
+        this.store.recordReply(threadHash, now);
 
         logEvent({
           event: 'REPLY_SENT',
@@ -90,13 +91,11 @@ export class FirewallPipeline {
           },
         });
       }
-    } else if (config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED') {
-      replyCount += 1;
     }
 
-    // 5. Auto-pause thread if reply limit is reached
+    // 5. Auto-pause thread if reply limit is reached (Only applies when actually sent, not dry run)
     const reachedLimit = replyCount >= config.CONTROLLED_MAX_REPLIES;
-    const isPaused = (existing?.paused || false) || reachedLimit;
+    const isPaused = (existing?.paused || false) || (!config.DRY_RUN && reachedLimit);
 
     this.store.upsertThread({
       threadId: threadHash,
