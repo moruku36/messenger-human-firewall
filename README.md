@@ -61,20 +61,20 @@ flowchart TD
 
     MR --> Detect
     Detect --> Dedup
-    Dedup -->|新規メッセージ| Classify
+    Dedup -->|"新規メッセージ"| Classify
 
-    Classify -->|スパム・宣伝| Ignore
-    Classify -->|緊急・脅威・クレデンシャル| Escalate
-    Classify -->|悪質詐欺| BlockRec
-    Classify -->|通常挨拶 / 投資・副業勧誘| StateMachine
+    Classify -->|"スパム・宣伝"| Ignore
+    Classify -->|"緊急・脅威・クレデンシャル"| Escalate
+    Classify -->|"悪質詐欺"| BlockRec
+    Classify -->|"通常挨拶 / 投資・副業勧誘"| StateMachine
 
     StateMachine --> Guard
-    Guard -->|危険パターン検知| Blocked
-    Guard -->|安全判定 (Clean)| Limits
+    Guard -->|"危険パターン検知"| Blocked
+    Guard -->|"安全判定 (Clean)"| Limits
 
-    Limits -->|Dry Run| Console
-    Limits -->|Production / Test Thread| Send
-    Send -.->|DOM入力・送信| MR
+    Limits -->|"Dry Run"| Console
+    Limits -->|"Production / Test Thread"| Send
+    Send -.->|"DOM入力・送信"| MR
 ```
 
 ---
