@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Facebook Messenger Mock</title>
+  <style>
+    body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; }
+    #sidebar { width: 320px; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
+    #tabs { display: flex; background: #f0f2f5; padding: 8px; }
+    .tab { margin-right: 8px; cursor: pointer; text-decoration: none; color: #333; }
+    #thread-list { flex: 1; overflow-y: auto; }
+    .thread-item { padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+    .thread-item.active { background: #e7f3ff; }
+    .unread-badge { background: #1877f2; color: #fff; border-radius: 50%; width: 12px; height: 12px; display: inline-block; }
+    #chat-area { flex: 1; display: flex; flex-direction: column; }
+    #messages { flex: 1; padding: 16px; overflow-y: auto; }
+    .message-row { margin-bottom: 8px; display: flex; }
+    .incoming { justify-content: flex-start; }
+    .incoming .bubble { background: #e4e6eb; color: #050505; border-radius: 18px; padding: 8px 12px; max-width: 60%; }
+    .outgoing { justify-content: flex-end; }
+    .outgoing .bubble { background: #0084ff; color: #fff; border-radius: 18px; padding: 8px 12px; max-width: 60%; }
+    #input-container { display: flex; padding: 12px; border-top: 1px solid #ccc; align-items: center; }
+    #message-box { flex: 1; min-height: 36px; border: 1px solid #ccc; border-radius: 18px; padding: 8px 12px; outline: none; }
+    #send-btn { margin-left: 8px; padding: 8px 16px; background: #0084ff; color: white; border: none; border-radius: 18px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <div id="tabs" role="tablist">
+      <a href="#inbox" role="tab" aria-label="Inbox">受信トレイ</a>
+      <a href="#requests" role="tab" aria-label="Message requests" class="active">メッセージリクエスト</a>
+    </div>
+
+    <div id="thread-list" role="list">
+      <!-- Thread 1: Unread message from stranger (Eligible for AI Receptionist/TimeWaster) -->
+      <div id="thread-1" class="thread-item active" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger A とのチャット">
+        <div class="thread-info">
+          <strong>Stranger A</strong>
+          <p class="snippet">怪しい副業の案件に興味ありませんか？</p>
+        </div>
+        <span class="unread-badge" aria-label="未読メッセージ"></span>
+      </div>
+
+      <!-- Thread 2: Read thread (Not eligible for unread scan) -->
+      <div id="thread-2" class="thread-item" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger B とのチャット">
+        <div class="thread-info">
+          <strong>Stranger B</strong>
+          <p class="snippet">既読のメッセージ</p>
+        </div>
+      </div>
+
+      <!-- Thread 3: Thread where LAST message is outgoing (Self-replied, must NOT trigger bot reply) -->
+      <div id="thread-3" class="thread-item" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger C とのチャット">
+        <div class="thread-info">
+          <strong>Stranger C</strong>
+          <p class="snippet">あなたが送信: こんにちは</p>
+        </div>
+        <span class="unread-badge" aria-label="未読メッセージ"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat-area">
+    <div id="messages" role="grid">
+      <!-- Chat history for active thread (Thread 1) -->
+      <div class="message-row incoming" role="row" data-testid="incoming_message">
+        <div class="bubble" dir="auto">はじめまして！突然のDM失礼します。</div>
+      </div>
+      <div class="message-row incoming" role="row" data-testid="incoming_message">
+        <div class="bubble" dir="auto">月30万円稼げる副業の案件に興味ありませんか？詳細はこちら https://scam.example.com</div>
+      </div>
+    </div>
+
+    <div id="input-container">
+      <div
+        id="message-box"
+        role="textbox"
+        contenteditable="true"
+        aria-label="メッセージを入力"
+        aria-multiline="true"
+      ></div>
+      <div
+        id="send-btn"
+        role="button"
+        aria-label="送信"
+        data-testid="send_button"
+        tabindex="0"
+      >送信</div>
+    </div>
+  </div>
+
+  <script>
+    const threadData = {
+      'thread-1': [
+        { dir: 'incoming', text: 'はじめまして！突然のDM失礼します。' },
+        { dir: 'incoming', text: '月30万円稼げる副業の案件に興味ありませんか？詳細はこちら https://scam.example.com' }
+      ],
+      'thread-2': [
+        { dir: 'incoming', text: 'こんにちは、以前の件です。' }
+      ],
+      'thread-3': [
+        { dir: 'incoming', text: '何かご質問はありますか？' },
+        { dir: 'outgoing', text: 'あなたが送信: こんにちは、検討します。' }
+      ]
+    };
+
+    document.querySelectorAll('.thread-item').forEach(el => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('.thread-item').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+
+        const tid = el.id;
+        const msgs = threadData[tid] || [];
+        const msgContainer = document.getElementById('messages');
+        msgContainer.innerHTML = '';
+
+        msgs.forEach(m => {
+          const row = document.createElement('div');
+          row.className = 'message-row ' + m.dir;
+          row.setAttribute('role', 'row');
+          row.setAttribute('data-testid', m.dir === 'outgoing' ? 'outgoing_message' : 'incoming_message');
+          if (m.dir === 'outgoing') {
+            row.setAttribute('aria-label', 'あなたが送信');
+          }
+
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+          bubble.setAttribute('dir', 'auto');
+          bubble.textContent = m.text;
+
+          row.appendChild(bubble);
+          msgContainer.appendChild(row);
+        });
+      });
+    });
+
+    // Send button click simulation
+    document.getElementById('send-btn').addEventListener('click', () => {
+      const box = document.getElementById('message-box');
+      const text = box.innerText.trim() || box.textContent.trim();
+      if (!text) return;
+
+      const msgContainer = document.getElementById('messages');
+      const row = document.createElement('div');
+      row.className = 'message-row outgoing';
+      row.setAttribute('role', 'row');
+      row.setAttribute('data-testid', 'outgoing_message');
+      row.setAttribute('aria-label', 'あなたが送信');
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.setAttribute('dir', 'auto');
+      bubble.textContent = text;
+
+      row.appendChild(bubble);
+      msgContainer.appendChild(row);
+      box.innerText = '';
+    });
+  </script>
+</body>
+</html>

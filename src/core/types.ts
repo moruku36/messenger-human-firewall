@@ -42,12 +42,12 @@ export const IgnoreSchema = BaseClassificationSchema.extend({
 
 export const HumanRequiredSchema = BaseClassificationSchema.extend({
   action: z.literal('HUMAN_REQUIRED'),
-  reply: z.string().optional(),
+  reply: z.string().nullable().optional().transform((v) => v ?? undefined),
 });
 
 export const BlockRecommendedSchema = BaseClassificationSchema.extend({
   action: z.literal('BLOCK_RECOMMENDED'),
-  reply: z.string().optional(),
+  reply: z.string().nullable().optional().transform((v) => v ?? undefined),
 });
 
 export const ClassificationResultSchema = z.discriminatedUnion('action', [
@@ -86,6 +86,7 @@ export const SafeLogDetailsSchema = z
     messageCount: z.number().optional(),
     step: z.string().optional(),
     statusMessage: z.string().optional(),
+    timeWasterState: z.string().optional(),
   })
   .strict();
 export type SafeLogDetails = z.infer<typeof SafeLogDetailsSchema>;
@@ -109,6 +110,7 @@ export interface ThreadState {
   lastMessageHash: string;
   mode: Action;
   messageCount: number;
+  replyCount?: number;
   riskScore: number;
   paused: boolean;
   humanRequired: boolean;
