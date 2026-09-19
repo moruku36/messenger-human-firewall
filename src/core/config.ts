@@ -38,6 +38,7 @@ export const ConfigSchema = z.object({
   CONTROLLED_MAX_REPLIES: PositiveIntSchema(1, 20, '3'),
   DATABASE_PATH: z.string().default('data/firewall.db'),
   PORT: PositiveIntSchema(1024, 65535, '3000'),
+  WATCH_POLL_INTERVAL_SECONDS: PositiveIntSchema(10, 3600, '60'),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
