@@ -85,6 +85,7 @@ export async function runWatcherLoop(): Promise<void> {
         apiKey: config.TYPESAFE_API_KEY,
         model: config.JEV_MODEL,
         timeoutMs: config.JEV_TIMEOUT_MS,
+        store,
       })
     : undefined;
   const firewallCore = new HumanFirewallCore(gemini, gemini, jevClassifier);

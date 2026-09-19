@@ -233,8 +233,8 @@ Deterministic TypeScript Policy (jev-policy.ts)
 4. **Local Reply Guard**:
    - 生成された返信文は送信直前にローカルの厳格な正規表現・ルールで二重検査され、危険パターンが検知された場合は即時遮断（`REPLY_BLOCKED`）されます。
 
-### Phase 2 合成ベンチマークの観測結果 (Synthetic Benchmark Notes)
-Phase 2 において、100 件の合成セキュリティトリアージデータセット（`benchmarks/security-triage-v1.json`）を用いた Jev API 評価を実施しました：
+### Phase 2 合成ベンチマークの観測結果 (Local Synthetic Benchmark Notes)
+Phase 2 において、100 件のセキュリティトリアージ検証ケースを用いたローカル合成ベンチマーク（local synthetic benchmark）による Jev API 評価を実施しました：
 - **Jev API 接続安定性**: 100/100 (100% 成功、スキーマエラー・タイムアウト・HTTP エラー 0 件)
 - **カテゴリ分類精度**: 94.0%
 - **アクション判定精度**: 82.0%
@@ -243,7 +243,7 @@ Phase 2 において、100 件の合成セキュリティトリアージデー�
 - **レイテンシ**: 平均 ~1,700ms
 
 > [!NOTE]
-> **注意事項**: 上記の数値は Phase 2 の合成評価データセット（100件）における実験的観測結果であり、未知のあらゆる実世界メッセージに対する安全性を将来にわたって保証するものではありません。また、評価時の Gemini API (Free Tier) はクォータ枯渇（HTTP 429）により Fail-Closed が作動したため、Gemini との対照比較はオフラインテストおよび個別ケースでの定性評価にとどまっています。
+> **注意事項**: 上記の数値は Phase 2 の合成評価セット（100件）における実験的観測結果であり、未知のあらゆる実世界メッセージに対する安全性を将来にわたって保証するものではありません。また、評価時の Gemini API (Free Tier) はクォータ枯渇（HTTP 429）により Fail-Closed が作動したため、Gemini との対照比較はオフラインテストおよび個別ケースでの定性評価にとどまっています。
 
 ### 動作モードの切り替え
 - **Production Active Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=false`)**: 推奨。Jev が本番トリアージを担当し、Gemini は返信生成のみ担当。

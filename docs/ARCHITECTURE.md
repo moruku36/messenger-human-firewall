@@ -7,39 +7,51 @@
 </p>
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│ Local Host Machine (Trusted & Controlled Environment)      │
-│                                                            │
-│  [Playwright Browser]                                      │
-│    Messenger Message Requests                              │
-│         │                                                  │
-│         ▼                                                  │
-│  [Browser Watcher & Validator]                             │
-│         │                                                  │
-│         ├──────────────► [SQLite State Store]              │
-│         │                 (sha256 hashes & counters only)  │
-│         │                                                  │
-│         ▼ (HTTPS: Stranger message text only)              │
-│    ═══════════════════════════════════════════════╗        │
-│                                                   ║        │
-│  [Reply Guard (Safety Regex & Policies)] ◄────────╫────────┼───┐
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Controlled Send Gate]                           ║        │   │
-│    (Strict Thread Match, 15s interval, 24h cap)   ║        │   │
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Playwright Dispatch to Active Thread]           ║        │   │
-└───────────────────────────────────────────────────╫────────┘   │
-                                                    ║             │
-                                 Internet Boundary  ║             │
-                                                    ▼             │
-                                      ┌───────────────────────┐   │
-                                      │ Third-Party Cloud     │   │
-                                      │ Google Gemini API     │───┘
-                                      │ (gemini-3.6-flash)    │
-                                      │ Header: x-goog-api-key│
-                                      └───────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Local Host Machine (Trusted & Controlled Environment)                           │
+│                                                                                 │
+│  [Playwright Browser]                                                           │
+│    Messenger Message Requests                                                   │
+│         │                                                                       │
+│         ▼                                                                       │
+│  [Browser Watcher & Validator]                                                  │
+│         │                                                                       │
+│         ├──────────────────────────► [SQLite State Store]                       │
+│         │                             (sha256 hashes, quotas & counters only)   │
+│         │                                                                       │
+│         ▼ (1. HTTPS: Stranger message & sanitized context)                      │
+│    ═════════════════════════════════════════════════════════════╗               │
+│                                                                 ║               │
+│  [Deterministic Policy (jev-policy.ts)] ◄───────────────────────╫───────────┐   │
+│         │                                                       ║           │   │
+│         ├── IGNORE / HUMAN_REQ / BLOCK (Gemini calls = 0)       ║           │   │
+│         │                                                       ║           │   │
+│         ▼ (POLITE_REPLY / TIME_WASTER only)                     ║           │   │
+│         │                                                       ║           │   │
+│         ▼ (2. HTTPS: Reply generation prompt)                   ║           │   │
+│    ═════════════════════════════════════════════════════════╗   ║           │   │
+│                                                             ║   ║           │   │
+│  [Reply Guard (Safety Regex & Policies)] ◄──────────────────╫───╫───────┐   │   │
+│         │                                                   ║   ║       │   │   │
+│         ▼                                                   ║   ║       │   │   │
+│  [Controlled Send Gate]                                     ║   ║       │   │   │
+│    (Strict Thread Match, 15s interval, 24h cap, Kill Switch)║   ║       │   │   │
+│         │                                                   ║   ║       │   │   │
+│         ▼                                                   ║   ║       │   │   │
+│  [Playwright Dispatch to Active Thread]                     ║   ║       │   │   │
+└─────────────────────────────────────────────────────────────╫───╫───────┘   │   │
+                                                              ║   ║           │   │
+                                           Internet Boundary  ║   ║           │   │
+                                                              ▼   ▼           │   │
+                                ┌─────────────────────────────────────────┐   │   │
+                                │ Third-Party Cloud AI Providers          │   │   │
+                                │                                         │   │   │
+                                │ 1. TypeSafe Jev API (Production Triage) ├───┘   │
+                                │    Header: Authorization: Bearer <key>  │       │
+                                │                                         │       │
+                                │ 2. Google Gemini API (Reply Generation) ├───────┘
+                                │    Header: x-goog-api-key               │
+                                └─────────────────────────────────────────┘
 ```
 
 ---

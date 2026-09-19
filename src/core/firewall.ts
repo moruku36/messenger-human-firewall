@@ -224,28 +224,33 @@ export class HumanFirewallCore {
     const timeWasterState = replyAction === 'TIME_WASTER' ? determineTimeWasterState(replyCount) : undefined;
 
     let reply: string;
-    try {
-      reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary, timeWasterState);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logEvent({
-        event: 'ERROR',
-        threadHash,
-        category: classification.category,
-        action: 'HUMAN_REQUIRED',
-        risk: 80,
-        reasonCode: 'REPLY_GENERATION_FAILED',
-        reason: 'Reply generation failed. Escalating to human.',
-        details: {
-          statusMessage: `Reply generation failed: ${msg}. Fails closed to HUMAN_REQUIRED.`,
-        },
-      });
+    const isJevActive = config.JEV_ENABLED && !config.JEV_SHADOW_MODE;
+    // In Legacy or Shadow mode, reuse existing classification.reply for POLITE_REPLY to prevent duplicate Gemini calls
+    if (!isJevActive && replyAction === 'POLITE_REPLY' && classification.reply) {
+      reply = classification.reply;
+    } else {
+      try {
+        reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary, timeWasterState);
+      } catch {
+        logEvent({
+          event: 'ERROR',
+          threadHash,
+          category: classification.category,
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reasonCode: 'REPLY_GENERATION_FAILED',
+          reason: 'Reply generation failed. Escalating to human.',
+          details: {
+            statusMessage: 'Reply generation failed; escalated to human.',
+          },
+        });
 
-      return {
-        classification,
-        finalDecision: 'HUMAN_REQUIRED',
-        timeWasterState,
-      };
+        return {
+          classification,
+          finalDecision: 'HUMAN_REQUIRED',
+          timeWasterState,
+        };
+      }
     }
 
     logEvent({

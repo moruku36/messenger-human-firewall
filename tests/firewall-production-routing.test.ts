@@ -278,6 +278,159 @@ describe('Phase 3: Production Routing Integration with Jev as Primary Triage', (
     expect(result.classification.action).toBe('POLITE_REPLY');
   });
 
+  it('sanitizes error logging: does NOT leak raw error or secret exception strings to captured logs', async () => {
+    const mockJevClient = {
+      systemOne: vi.fn().mockResolvedValue({
+        answers: {
+          category: { choice: 'NORMAL', confidence: 0.95 },
+          credentialRequest: { noul: 0.0 },
+          moneyRequest: { noul: 0.0 },
+          threatOrUrgency: { noul: 0.0 },
+          promptInjection: { noul: 0.0 },
+          suspiciousExternalLink: { noul: 0.0 },
+          overallRisk: { score: 0.1 },
+        },
+      }),
+    } as unknown as TypeSafeClient;
+
+    const SECRET_ERROR_PAYLOAD = 'API_SECRET_KEY_AIzaSyFakeKey12345 leaked in stack trace!';
+    mockGeminiGenerator.generateReply = vi.fn().mockRejectedValue(new Error(SECRET_ERROR_PAYLOAD));
+
+    const consoleLogSpy = vi.spyOn(console, 'log');
+
+    const jevClassifier = new JevClassifier({ client: mockJevClient });
+    const firewall = new HumanFirewallCore(
+      mockGeminiClassifier,
+      mockGeminiGenerator,
+      jevClassifier,
+    );
+
+    await firewall.processMessage('こんにちは', 'thread-hash-log-leak-test');
+
+    const errorLogs = consoleLogSpy.mock.calls
+      .map((call) => call[0])
+      .filter((line) => typeof line === 'string' && line.includes('REPLY_GENERATION_FAILED'));
+
+    expect(errorLogs.length).toBeGreaterThan(0);
+    for (const logLine of errorLogs) {
+      expect(logLine).not.toContain(SECRET_ERROR_PAYLOAD);
+      expect(logLine).toContain('Reply generation failed; escalated to human.');
+    }
+
+    consoleLogSpy.mockRestore();
+  });
+
+  it('enforces MAX_LLM_REQUESTS_PER_DAY on Jev: when quota is reached, systemOne is NOT called, fails closed to HUMAN_REQUIRED', async () => {
+    const { ThreadStore } = await import('../src/core/storage.js');
+    const store = new ThreadStore(':memory:');
+
+    // Simulate quota reached (e.g. 100 requests)
+    for (let i = 0; i < 100; i++) {
+      store.recordLlmRequest();
+    }
+
+    const mockJevClient = {
+      systemOne: vi.fn(),
+    } as unknown as TypeSafeClient;
+
+    const jevClassifier = new JevClassifier({ client: mockJevClient, store });
+    const firewall = new HumanFirewallCore(
+      mockGeminiClassifier,
+      mockGeminiGenerator,
+      jevClassifier,
+    );
+
+    const result = await firewall.processMessage(
+      'こんにちは！昨日の件です。',
+      'thread-hash-quota-test',
+    );
+
+    // Jev API must not be called
+    expect(mockJevClient.systemOne).not.toHaveBeenCalled();
+    // Gemini classifier must not be called as fallback
+    expect(mockGeminiClassifier.classify).not.toHaveBeenCalled();
+    // Must fail closed to HUMAN_REQUIRED
+    expect(result.finalDecision).toBe('HUMAN_REQUIRED');
+    expect(result.classification.action).toBe('HUMAN_REQUIRED');
+    expect(result.classification.category).toBe('UNKNOWN');
+
+    store.close();
+  });
+
+  it('avoids duplicate Gemini calls in Legacy Mode: reuses classification.reply for POLITE_REPLY without calling generateReply', async () => {
+    process.env.JEV_ENABLED = 'false';
+
+    mockGeminiClassifier.classify = vi.fn().mockResolvedValue({
+      category: 'NORMAL',
+      action: 'POLITE_REPLY',
+      risk: 10,
+      reason: 'Gemini classified',
+      reply: 'お世話になっております。どのようなご用件でしょうか？',
+    });
+
+    const firewall = new HumanFirewallCore(
+      mockGeminiClassifier,
+      mockGeminiGenerator,
+      undefined,
+    );
+
+    const result = await firewall.processMessage(
+      '昨日はありがとうございました！',
+      'thread-hash-legacy-polite',
+    );
+
+    expect(mockGeminiClassifier.classify).toHaveBeenCalledTimes(1);
+    expect(mockGeminiGenerator.generateReply).not.toHaveBeenCalled();
+    expect(result.finalDecision).toBe('SEND_ALLOWED');
+    expect(result.candidateReply).toBe('お世話になっております。どのようなご用件でしょうか？');
+  });
+
+  it('avoids duplicate Gemini calls in Shadow Mode: reuses classification.reply for POLITE_REPLY without calling generateReply', async () => {
+    process.env.JEV_ENABLED = 'true';
+    process.env.JEV_SHADOW_MODE = 'true';
+
+    mockGeminiClassifier.classify = vi.fn().mockResolvedValue({
+      category: 'NORMAL',
+      action: 'POLITE_REPLY',
+      risk: 10,
+      reason: 'Gemini classified',
+      reply: 'ご連絡ありがとうございます。ご用件をお伺いできますか？',
+    });
+
+    const mockJevClient = {
+      systemOne: vi.fn().mockResolvedValue({
+        answers: {
+          category: { choice: 'NORMAL', confidence: 0.95 },
+          credentialRequest: { noul: 0.01 },
+          moneyRequest: { noul: 0.02 },
+          threatOrUrgency: { noul: 0.0 },
+          promptInjection: { noul: 0.0 },
+          suspiciousExternalLink: { noul: 0.01 },
+          overallRisk: { score: 0.1 },
+        },
+      }),
+    } as unknown as TypeSafeClient;
+
+    const jevClassifier = new JevClassifier({ client: mockJevClient });
+    const firewall = new HumanFirewallCore(
+      mockGeminiClassifier,
+      mockGeminiGenerator,
+      jevClassifier,
+    );
+
+    const result = await firewall.processMessage(
+      '昨日はありがとうございました！',
+      'thread-hash-shadow-polite',
+    );
+
+    expect(mockGeminiClassifier.classify).toHaveBeenCalledTimes(1);
+    expect(mockGeminiGenerator.generateReply).not.toHaveBeenCalled();
+    expect(result.finalDecision).toBe('SEND_ALLOWED');
+    expect(result.candidateReply).toBe('ご連絡ありがとうございます。ご用件をお伺いできますか？');
+
+    await firewall.waitForPendingShadowTasks();
+  });
+
   it('preserves Shadow Mode when JEV_SHADOW_MODE=true: Gemini classifies, Jev runs in background', async () => {
     process.env.JEV_SHADOW_MODE = 'true';
 
