@@ -2,7 +2,17 @@
 
 個人Facebook Messenger向けのローカル常駐型 **「Messenger Human Firewall」**。
 
-Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、LLMを介して安全に自動応答・無力化するセキュリティ＆自動化基盤です。
+Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、AIとローカルの決定論的ルールを組み合わせて、安全にトリアージ・応答・遮断するセキュリティ＆自動化基盤です。
+
+現在の本番構成では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。**Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
+
+| 役割 | コンポーネント |
+| :--- | :--- |
+| セマンティック・トリアージ | TypeSafe Jev / System One |
+| 最終Action決定 | Deterministic TypeScript Policy |
+| 返信文生成 | Google Gemini（`POLITE_REPLY` / `TIME_WASTER` のみ） |
+| 送信直前検査 | Local Reply Guard |
+| 実送信制御 | Controlled Send Gate / DRY_RUN / Kill Switch |
 
 ---
 
@@ -24,7 +34,7 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 
 ---
 
-## 処理パイプライン (Target Architecture)
+## 処理パイプライン (Current Architecture)
 
 <p align="center">
   <img src="docs/assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
@@ -40,48 +50,59 @@ flowchart TD
 
     subgraph Watcher["1. Browser Watcher"]
         Detect["新着未読検知・スレッドID抽出"]
-        Dedup["SQLite 重複排除 (SHA-256)"]
+        Dedup["SQLite 重複排除<br/>(SHA-256 / counters / quota)"]
     end
 
-    subgraph LLM["2. Human Firewall AI (Google Gemini 3.6 Flash)"]
-        Classify{"トリアージ分類<br/>(Structured Output)"}
+    subgraph Triage["2. Production Triage"]
+        Jev["TypeSafe Jev / System One<br/>Choice / Noul / Continuous Score"]
+        Policy{"Deterministic TypeScript Policy<br/>(jev-policy.ts)"}
     end
 
-    subgraph Actions["3. Decision & State Machine"]
-        Ignore["何もしない (IGNORE)"]
-        Escalate["人間要対応 (HUMAN_REQUIRED)"]
-        BlockRec["ブロック推奨記録 (BLOCK_RECOMMENDED)"]
-        StateMachine["State Machine<br/>(POLITE_REPLY / TIME_WASTER)"]
+    subgraph Actions["3. Action Routing"]
+        Ignore["IGNORE"]
+        Escalate["HUMAN_REQUIRED"]
+        BlockRec["BLOCK_RECOMMENDED"]
+        Reply["POLITE_REPLY / TIME_WASTER"]
     end
 
-    subgraph Safety["4. Local Safety & Reply Guard"]
-        Guard{"Reply Guard 検査<br/>(PII / 金銭・合意 / URL)"}
-        Blocked["送信遮断 ➜ エスカレーション"]
+    subgraph Generation["4. Reply Generation (only when required)"]
+        Gemini["Google Gemini<br/>Reply Generation ONLY"]
     end
 
-    subgraph SendGate["5. Controlled Send Gate"]
-        Limits{"多層安全ゲート<br/>・スレッド完全一致 & DOM再検証<br/>・15秒送信間隔<br/>・24hローリング上限<br/>・Kill Switch"}
-        Console["コンソール出力 (DRY_RUN=true)"]
-        Send["Messenger実送信 (DRY_RUN=false)"]
+    subgraph Safety["5. Local Safety & Reply Guard"]
+        Guard{"Reply Guard<br/>PII / 金銭・合意 / URL"}
+        Blocked["REPLY_BLOCKED / HUMAN_REQUIRED"]
+    end
+
+    subgraph SendGate["6. Controlled Send Gate"]
+        Limits{"Safety Gates<br/>Thread Match / Rate Limit / Kill Switch"}
+        Console["DRY_RUN=true<br/>Console only"]
+        Send["DRY_RUN=false<br/>Messenger dispatch"]
     end
 
     MR --> Detect
     Detect --> Dedup
-    Dedup -->|"新規メッセージ"| Classify
+    Dedup --> Jev
+    Jev --> Policy
 
-    Classify -->|"スパム・宣伝"| Ignore
-    Classify -->|"緊急・脅威・クレデンシャル"| Escalate
-    Classify -->|"悪質詐欺"| BlockRec
-    Classify -->|"通常挨拶 / 投資・副業勧誘"| StateMachine
+    Policy -->|spam| Ignore
+    Policy -->|threat / ambiguity / failure| Escalate
+    Policy -->|credential / money / injection| BlockRec
+    Policy -->|reply required| Reply
 
-    StateMachine --> Guard
-    Guard -->|"危険パターン検知"| Blocked
-    Guard -->|"安全判定 (Clean)"| Limits
+    Reply --> Gemini
+    Gemini -->|generation failure| Escalate
+    Gemini --> Guard
 
-    Limits -->|"Dry Run"| Console
-    Limits -->|"Production / Test Thread"| Send
-    Send -.->|"DOM入力・送信"| MR
+    Guard -->|dangerous output| Blocked
+    Guard -->|clean| Limits
+
+    Limits -->|Dry Run| Console
+    Limits -->|Controlled Live| Send
+    Send -.-> MR
 ```
+
+**重要:** Active Jev Modeでは `IGNORE` / `HUMAN_REQUIRED` / `BLOCK_RECOMMENDED` の判定後にGemini APIを呼びません。Jev・GeminiのAPI障害、日次API quota超過、返信生成失敗はすべて安全側へFail-Closedします。
 
 ---
 
@@ -96,11 +117,13 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **Phase 1** | **Skeleton & Safety Foundations** | **完了 (Completed)** | 型定義、Reply Guard、Kill Switch、厳格セレクタ、CI |
 | **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
-| **Phase 3** | **Human Firewall AI** | **完了 (Completed)** | Gemini 3.6 Flash 分類・返信生成、Structured Output、Reply Guard統合 |
-| **Phase 4** | **Dry Run Integration** | **完了 (Completed)** | 全パイプライン統合 (DRY_RUN=true)、10シナリオテスト検証、ユーザー確認要求 |
-| **Phase 5** | **Controlled Reply** | **完了 (Completed)** | 指定スレッド限定送信、最大3通制限、自動停止、Playwright入力・送信 |
-| **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | ターン数（1〜3）に応じた状態遷移（Curious ➜ Deep Probing ➜ Hesitant Closing） |
-| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | `npm run dashboard` (`http://localhost:3000`) 管理画面・Kill Switch切替・スレッド一覧・手動ポーズ |
+| **Phase 3** | **Initial Human Firewall AI** | **完了 (Completed)** | Geminiベースの初期分類・返信生成、Structured Output、Reply Guard統合 |
+| **Phase 4** | **Dry Run Integration** | **完了 (Completed)** | 全パイプライン統合 (`DRY_RUN=true`)、シナリオテスト |
+| **Phase 5** | **Controlled Reply** | **完了 (Completed)** | 指定スレッド限定送信、返信上限、自動停止、Playwright入力・送信 |
+| **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | Curious ➜ Deep Probing ➜ Hesitant Closing の状態遷移 |
+| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧・手動ポーズ |
+| **Phase 8** | **Jev Production Triage** | **完了 (Completed)** | Jevを本番トリアージへ昇格、TypeScript deterministic policy、Geminiを返信生成専用化、Fail-Closed / Shadow / Legacy互換 |
+| **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止、ログサニタイズ、GitHub Actions CI再現性 |
 
 ---
 
@@ -109,7 +132,7 @@ flowchart TD
 詳細なシステムトポロジおよびコンポーネント構成は [ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
  
 ### データ送信とプライバシーに関する重要事項 (Data Privacy Policy)
-1. **外部送信対象**: トリアージ（TypeSafe Jev）および返信文生成（Google Gemini）のため、受信メッセージ本文と最小限の会話要約のみが HTTPS 経由で各 API に送信されます。
+1. **外部送信対象**: 受信メッセージ本文と最小限の会話要約はトリアージのため TypeSafe Jev へ送信されます。JevのActionが `POLITE_REPLY` / `TIME_WASTER` の場合のみ、返信生成のため同等の最小コンテキストを Google Gemini へ送信します。
 2. **所有者情報の保護 (Zero-Owner-Context)**: ローカルの秘密鍵、セッションCookie、環境変数、および所有者自身の個人プロファイル情報（本名、住所、電話番号等）はプロンプトに一切追加・送信されません。
    > [!NOTE]
    > 受信メッセージ本文自体に送信者自身の個人情報（電話番号、氏名等）が含まれる場合、それらはトリアージ判定のために Jev / Gemini へ送信されます。
@@ -148,7 +171,7 @@ flowchart TD
    - 誤スレッド送信の二重検証（クリック後にアクティブスレッドを再検証）
    - 1スレッド最大3返信制限（初期制限）
    - 24時間ローリング送信上限（最大20返信/スレッド）
-   - 1日のLLM総リクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回）
+   - Jev / Gemini 共通の日次AIリクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回）
    - 15秒送信インターバル待機
    - 緊急停止キルスイッチ
 6. **ログ・DB ハッシュ化**: メッセージ本文をDBに平文保存せず、ログにもサニタイズされた定型コード（`reasonCode`）とハッシュのみ記録。
@@ -163,6 +186,8 @@ flowchart TD
 - Node.js 20+
 - npm 9+
 - Google Chrome または Playwright Chromium
+- TypeSafe Jev / System One API Key
+- Google Gemini API Key（返信生成を利用する場合）
 
 ### インストール
 
@@ -173,6 +198,9 @@ npm install
 # 環境変数の設定
 cp .env.example .env
 ```
+
+> [!NOTE]
+> `@typesafe-ai/sdk` はCI再現性のため `typesafe-ai-sdk-0.6.0.tgz` をリポジトリに同梱し、依存関係を固定しています。通常は上記の `npm install` / CIの `npm ci` だけで追加作業は不要です。
 
 `.env` に必要な項目を設定します：
 - `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
@@ -240,7 +268,7 @@ Phase 2 において、100 件のセキュリティトリアージ検証ケー�
 - **アクション判定精度**: 82.0%
 - **高リスク・脅威メッセージのリコール率**: 100%
 - **重大な見逃し（Critical Undershoots）**: 0 件（脅威や重大詐欺を `POLITE_REPLY` や `IGNORE` に誤判定した例は皆無）
-- **レイテンシ**: 平均 ~1,700ms
+- **レイテンシ**: P50 約236ms / P95 約299ms（100ケース・1 runでの観測）
 
 > [!NOTE]
 > **注意事項**: 上記の数値は Phase 2 の合成評価セット（100件）における実験的観測結果であり、未知のあらゆる実世界メッセージに対する安全性を将来にわたって保証するものではありません。また、評価時の Gemini API (Free Tier) はクォータ枯渇（HTTP 429）により Fail-Closed が作動したため、Gemini との対照比較はオフラインテストおよび個別ケースでの定性評価にとどまっています。
@@ -352,7 +380,7 @@ npm run lint
 
 ## ロードマップ (Roadmap)
 
-- [x] **v0 (Current)**: Message Requests 検知、Gemini 3.6 Flash トリアージ、Reply Guard による PII/合意/URL 遮断、Controlled Reply、ローカル Web ダッシュボード。
+- [x] **v0 (Current)**: Message Requests 検知、TypeSafe Jev Production Triage、Deterministic TypeScript Policy、Gemini返信生成、Reply Guard、Controlled Reply、共通API quota、Shadow / Legacy rollback path、ローカル Web ダッシュボード。
 - [ ] **v1 (Planned)**:
   - 複数 LLM プロバイダ対応（ローカル Ollama / Claude / OpenAI の抽象化切り替え）。
   - Slack / Webhook 経由の `HUMAN_REQUIRED` 即時モバイル通知連携。
