@@ -70,6 +70,8 @@ export const ObservabilityEventTypeSchema = z.enum([
   'HUMAN_REQUIRED',
   'LOGIN_REQUIRED',
   'ERROR',
+  'JEV_SHADOW_EVALUATED',
+  'JEV_ERROR',
 ]);
 export type ObservabilityEventType = z.infer<typeof ObservabilityEventTypeSchema>;
 
@@ -87,6 +89,17 @@ export const SafeLogDetailsSchema = z
     step: z.string().optional(),
     statusMessage: z.string().optional(),
     timeWasterState: z.string().optional(),
+    // Jev Shadow Telemetry metrics
+    jevCategory: z.string().optional(),
+    jevAction: z.string().optional(),
+    geminiCategory: z.string().optional(),
+    geminiAction: z.string().optional(),
+    categoryAgreement: z.boolean().optional(),
+    actionAgreement: z.boolean().optional(),
+    jevLatencyMs: z.number().optional(),
+    jevConfidence: z.number().optional(),
+    jevSuccess: z.boolean().optional(),
+    jevReasonCode: z.string().optional(),
   })
   .strict();
 export type SafeLogDetails = z.infer<typeof SafeLogDetailsSchema>;
@@ -115,4 +128,65 @@ export interface ThreadState {
   riskScore: number;
   paused: boolean;
   humanRequired: boolean;
+}
+
+export type JevReasonCode =
+  | 'JEV_SCAM_HIGH_CONFIDENCE'
+  | 'JEV_CREDENTIAL_REQUEST'
+  | 'JEV_MONEY_REQUEST'
+  | 'JEV_THREAT'
+  | 'JEV_PROMPT_INJECTION'
+  | 'JEV_SUSPICIOUS_LINK'
+  | 'JEV_SPAM_HIGH_CONFIDENCE'
+  | 'JEV_SALES_PROBING'
+  | 'JEV_NORMAL_CONVERSATION'
+  | 'JEV_LOW_CONFIDENCE'
+  | 'JEV_TIMEOUT'
+  | 'JEV_API_ERROR'
+  | 'JEV_SCHEMA_ERROR';
+
+export interface JevSignals {
+  category: Category;
+  categoryConfidence: number;
+  categoryProbabilities?: Record<string, number>;
+  credentialRequest: number; // 0.0 - 1.0 probability
+  moneyRequest: number; // 0.0 - 1.0 probability
+  threatOrUrgency: number; // 0.0 - 1.0 probability
+  promptInjection: number; // 0.0 - 1.0 probability
+  suspiciousExternalLink: number; // 0.0 - 1.0 probability
+  overallRisk: number; // 0 to 4 (scale index)
+  overallRiskScoreValue?: number; // expectation value
+}
+
+export interface JevDecision {
+  action: Action;
+  category: Category;
+  risk: number; // 0-100 normalized risk score
+  reasonCode: JevReasonCode;
+  reason: string;
+  signals?: JevSignals;
+  latencyMs?: number;
+  success: boolean;
+}
+
+export interface JevComparisonResult {
+  threadHash: string;
+  timestamp: string;
+  geminiCategory: Category;
+  jevCategory: Category;
+  geminiAction: Action;
+  jevAction: Action;
+  categoryAgreement: boolean;
+  actionAgreement: boolean;
+  jevConfidence: number;
+  jevRiskProbabilities?: {
+    credentialRequest: number;
+    moneyRequest: number;
+    threatOrUrgency: number;
+    promptInjection: number;
+    suspiciousExternalLink: number;
+  };
+  jevLatencyMs: number;
+  jevSuccess: boolean;
+  jevReasonCode: JevReasonCode;
 }

@@ -15,6 +15,7 @@ import {
   ThreadStore,
 } from './core/index.js';
 import { GeminiProvider } from './llm/gemini.js';
+import { JevClassifier } from './llm/jev.js';
 
 async function runScanCycle(
   page: Awaited<ReturnType<BrowserContext['newPage']>>,
@@ -68,12 +69,20 @@ export async function runWatcherLoop(): Promise<void> {
   console.log(`[Config] LLM Provider  : ${config.LLM_PROVIDER}`);
   console.log(`[Config] Browser Data  : ${config.BROWSER_USER_DATA_DIR}`);
   console.log(`[Config] Poll Interval : ${config.WATCH_POLL_INTERVAL_SECONDS}s`);
+  console.log(`[Config] Jev Shadow Mode: ${config.JEV_ENABLED ? `Active (${config.JEV_MODEL})` : 'Disabled'}`);
   console.log('====================================================\n');
 
   const userDataDir = path.resolve(process.cwd(), config.BROWSER_USER_DATA_DIR);
   const store = new ThreadStore(config.DATABASE_PATH);
   const gemini = new GeminiProvider(config.GEMINI_API_KEY, config.GEMINI_MODEL, store);
-  const firewallCore = new HumanFirewallCore(gemini, gemini);
+  const jevClassifier = config.JEV_ENABLED
+    ? new JevClassifier({
+        apiKey: config.TYPESAFE_API_KEY,
+        model: config.JEV_MODEL,
+        timeoutMs: config.JEV_TIMEOUT_MS,
+      })
+    : undefined;
+  const firewallCore = new HumanFirewallCore(gemini, gemini, jevClassifier);
   const pipeline = new FirewallPipeline(firewallCore, store);
 
   let context: BrowserContext | null = null;

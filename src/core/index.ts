@@ -8,3 +8,5 @@ export * from './storage.js';
 export * from './firewall.js';
 export * from './pipeline.js';
 export * from './controlled-limiter.js';
+export * from './jev-policy.js';
+export * from './comparator.js';
