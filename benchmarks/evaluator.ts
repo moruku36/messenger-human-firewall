@@ -149,14 +149,31 @@ export async function evaluateBenchmarkCase(
   const geminiStart = Date.now();
   let geminiResult: SingleEvaluationResult;
   try {
-    const classification = await clients.gemini.classify(item.message);
-    geminiResult = {
-      category: classification.category,
-      action: classification.action,
-      risk: classification.risk,
-      latencyMs: Date.now() - geminiStart,
-      success: true,
-    };
+    const diag = typeof clients.gemini.classifyWithDiagnostics === 'function'
+      ? await clients.gemini.classifyWithDiagnostics(item.message)
+      : {
+          result: await clients.gemini.classify(item.message),
+          success: true,
+        };
+
+    if (diag.success) {
+      geminiResult = {
+        category: diag.result.category,
+        action: diag.result.action,
+        risk: diag.result.risk,
+        latencyMs: Date.now() - geminiStart,
+        success: true,
+      };
+    } else {
+      geminiResult = {
+        latencyMs: Date.now() - geminiStart,
+        success: false,
+        errorCode: diag.failureType || 'GEMINI_FAILURE',
+        errorMessage: diag.errorMessage || diag.result.reason,
+        fallbackAction: diag.result.action,
+        fallbackCategory: diag.result.category,
+      };
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     geminiResult = {
@@ -164,6 +181,8 @@ export async function evaluateBenchmarkCase(
       success: false,
       errorCode: 'GEMINI_API_ERROR',
       errorMessage: msg,
+      fallbackAction: 'HUMAN_REQUIRED',
+      fallbackCategory: 'UNKNOWN',
     };
   }
 

@@ -165,11 +165,20 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
   let geminiFailureCount = 0;
   let jevFailureCount = 0;
 
+  let geminiApiErrors = 0;
+  let geminiJsonParseErrors = 0;
+  let geminiSchemaErrors = 0;
+  let geminiEmptyResponses = 0;
+  let geminiOtherErrors = 0;
+  let geminiGenuineUnknownCount = 0;
+
+  const geminiLatencies: number[] = [];
+  const jevLatencies: number[] = [];
+
   let geminiCategoryCorrectCount = 0;
   let jevCategoryCorrectCount = 0;
   let geminiActionCorrectCount = 0;
   let jevActionCorrectCount = 0;
-
   let categoryAgreementCount = 0;
   let actionAgreementCount = 0;
 
@@ -179,9 +188,6 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
   let criticalJevUndershootCount = 0;
   let criticalGeminiUndershootCount = 0;
   let bothCriticalUndershootCount = 0;
-
-  const geminiLatencies: number[] = [];
-  const jevLatencies: number[] = [];
 
   const criticalJevUndershoots: string[] = [];
   const criticalGeminiUndershoots: string[] = [];
@@ -219,8 +225,29 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
     if (r.gemini.success) {
       geminiSuccessCount++;
       geminiLatencies.push(r.gemini.latencyMs);
+      if (r.gemini.category === 'UNKNOWN') {
+        geminiGenuineUnknownCount++;
+      }
     } else {
       geminiFailureCount++;
+      switch (r.gemini.errorCode) {
+        case 'API_ERROR':
+        case 'GEMINI_API_ERROR':
+          geminiApiErrors++;
+          break;
+        case 'JSON_PARSE_ERROR':
+          geminiJsonParseErrors++;
+          break;
+        case 'SCHEMA_ERROR':
+          geminiSchemaErrors++;
+          break;
+        case 'EMPTY_RESPONSE':
+          geminiEmptyResponses++;
+          break;
+        default:
+          geminiOtherErrors++;
+          break;
+      }
     }
 
     if (r.jev.success) {
@@ -397,6 +424,13 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
       jevSuccessCount,
       geminiFailureCount,
       jevFailureCount,
+
+      geminiApiErrors,
+      geminiJsonParseErrors,
+      geminiSchemaErrors,
+      geminiEmptyResponses,
+      geminiOtherErrors,
+      geminiGenuineUnknownCount,
 
       // End-to-End
       geminiEndToEndCategoryAccuracy: totalCases > 0 ? Math.round((geminiCategoryCorrectCount / totalCases) * 1000) / 1000 : 0,

@@ -345,6 +345,8 @@ export async function runBenchmark(
   console.log(`Critical Undershoot: Gemini=${o.criticalGeminiUndershootCount} | Jev=${o.criticalJevUndershootCount} | Both=${o.bothCriticalUndershootCount}`);
   console.log(`Relative Escalation: Gemini More=${o.geminiMoreEscalatedCount} | Jev More=${o.jevMoreEscalatedCount} | Equiv=${o.equivalentEscalationCount}`);
   console.log(`Latency (P50)      : Gemini=${l.gemini.p50}ms | Jev=${l.jev.p50}ms`);
+  console.log(`Gemini Failures    : Total=${o.geminiFailureCount} (API=${o.geminiApiErrors}, Parse=${o.geminiJsonParseErrors}, Schema=${o.geminiSchemaErrors}, Empty=${o.geminiEmptyResponses})`);
+  console.log(`Gemini Genuine UNK : ${o.geminiGenuineUnknownCount}`);
   if (stability) {
     console.log(`Stability Across Runs: Action: Gem ${(stability.geminiActionStability * 100).toFixed(1)}% / Jev ${(stability.jevActionStability * 100).toFixed(1)}%`);
   }

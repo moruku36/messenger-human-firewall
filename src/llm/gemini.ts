@@ -34,6 +34,22 @@ interface GeminiResponse {
   };
 }
 
+export type GeminiFailureType =
+  | 'API_ERROR'
+  | 'EMPTY_RESPONSE'
+  | 'JSON_PARSE_ERROR'
+  | 'SCHEMA_ERROR'
+  | 'UNKNOWN_ERROR';
+
+export interface GeminiClassificationDiagnostic {
+  result: ClassificationResult;
+  success: boolean;
+  failureType?: GeminiFailureType;
+  rawCategory?: string;
+  rawAction?: string;
+  errorMessage?: string;
+}
+
 export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
   public name = 'gemini';
   private apiKey: string;
@@ -109,12 +125,14 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
   }
 
   /**
-   * Classifies incoming stranger message and determines action.
+   * Diagnostic classification method for benchmarking and evaluation.
+   * Distinguishes between successful model inferences (including genuine UNKNOWN)
+   * and internal fail-closed fallbacks (API errors, JSON parsing errors, schema errors).
    */
-  public async classify(
+  public async classifyWithDiagnostics(
     incomingMessage: string,
     historySummary?: string,
-  ): Promise<ClassificationResult> {
+  ): Promise<GeminiClassificationDiagnostic> {
     const systemPrompt = `あなたはFacebook Messengerの受信メッセージを分類・トリアージするセキュリティ分類器です。
 受信者はメッセージ送信者と面識がなく、相手はすべて「UNTRUSTED INPUT（未信頼の外部入力）」です。
 
@@ -149,44 +167,106 @@ export class GeminiProvider implements LLMClassifier, LLMReplyGenerator {
 【受信メッセージ本文（UNTRUSTED INPUT）】:
 ${incomingMessage}`;
 
+    // 1. API Call Phase
+    let rawJson: string;
     try {
-      const rawJson = await this.callApi(systemPrompt, userPrompt, true);
-      const parsed = JSON.parse(rawJson);
+      rawJson = await this.callApi(systemPrompt, userPrompt, true);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isApiError = message.includes('Gemini API error') || message.includes('quota') || message.includes('status');
+      const isEmpty = message.includes('Empty or malformed candidate');
+      const failureType: GeminiFailureType = isEmpty
+        ? 'EMPTY_RESPONSE'
+        : isApiError
+          ? 'API_ERROR'
+          : 'UNKNOWN_ERROR';
 
-      // Sanitize fields for schema validation
-      if (parsed.reply === null || parsed.reply === undefined) {
-        delete parsed.reply;
-      }
+      return {
+        result: {
+          category: 'UNKNOWN',
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reason: `LLM Classification failure: ${message}`,
+        },
+        success: false,
+        failureType,
+        errorMessage: message,
+      };
+    }
 
-      if (parsed.action === 'IGNORE') {
-        delete parsed.reply;
-      } else if (
-        (parsed.action === 'POLITE_REPLY' || parsed.action === 'TIME_WASTER') &&
-        !parsed.reply
-      ) {
-        parsed.reply = 'どのようなご用件でしょうか？';
-      }
+    // 2. JSON Parsing Phase
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        result: {
+          category: 'UNKNOWN',
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reason: `LLM Classification failure: ${message}`,
+        },
+        success: false,
+        failureType: 'JSON_PARSE_ERROR',
+        errorMessage: message,
+      };
+    }
 
-      const result = ClassificationResultSchema.safeParse(parsed);
-      if (!result.success) {
-        return {
+    const rawCategory = typeof parsed?.category === 'string' ? parsed.category : undefined;
+    const rawAction = typeof parsed?.action === 'string' ? parsed.action : undefined;
+
+    // Sanitize fields for schema validation
+    if (parsed.reply === null || parsed.reply === undefined) {
+      delete parsed.reply;
+    }
+
+    if (parsed.action === 'IGNORE') {
+      delete parsed.reply;
+    } else if (
+      (parsed.action === 'POLITE_REPLY' || parsed.action === 'TIME_WASTER') &&
+      !parsed.reply
+    ) {
+      parsed.reply = 'どのようなご用件でしょうか？';
+    }
+
+    // 3. Schema Validation Phase
+    const result = ClassificationResultSchema.safeParse(parsed);
+    if (!result.success) {
+      return {
+        result: {
           category: 'UNKNOWN',
           action: 'HUMAN_REQUIRED',
           risk: 70,
           reason: `Schema validation failed: ${result.error.message}`,
-        };
-      }
-
-      return result.data;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        category: 'UNKNOWN',
-        action: 'HUMAN_REQUIRED',
-        risk: 80,
-        reason: `LLM Classification failure: ${message}`,
+        },
+        success: false,
+        failureType: 'SCHEMA_ERROR',
+        rawCategory,
+        rawAction,
+        errorMessage: result.error.message,
       };
     }
+
+    // 4. Valid Model Inference (including genuine UNKNOWN)
+    return {
+      result: result.data,
+      success: true,
+      rawCategory,
+      rawAction,
+    };
+  }
+
+  /**
+   * Classifies incoming stranger message and determines action.
+   * Preserves production fail-closed behavior.
+   */
+  public async classify(
+    incomingMessage: string,
+    historySummary?: string,
+  ): Promise<ClassificationResult> {
+    const diag = await this.classifyWithDiagnostics(incomingMessage, historySummary);
+    return diag.result;
   }
 
   /**

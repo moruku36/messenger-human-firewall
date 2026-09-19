@@ -73,6 +73,8 @@ export interface SingleEvaluationResult {
   success: boolean;
   errorCode?: string;
   errorMessage?: string;
+  fallbackAction?: string;
+  fallbackCategory?: string;
   signals?: Record<string, number>;
   triggeredSignals?: string[];
   primarySignal?: string;
@@ -156,6 +158,14 @@ export interface AggregatedBenchmarkMetrics {
     jevSuccessCount: number;
     geminiFailureCount: number;
     jevFailureCount: number;
+
+    // Detailed Gemini Failure Breakdown
+    geminiApiErrors: number;
+    geminiJsonParseErrors: number;
+    geminiSchemaErrors: number;
+    geminiEmptyResponses: number;
+    geminiOtherErrors: number;
+    geminiGenuineUnknownCount: number;
 
     // End-to-End Accuracy (denominator = totalCases)
     geminiEndToEndCategoryAccuracy: number;

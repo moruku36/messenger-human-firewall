@@ -127,6 +127,16 @@ Evaluation separates **End-to-End System Reliability** (failures treated as miss
 | **Latency (P95)** | **${l.gemini.p95}ms** | **${l.jev.p95}ms** | Max: Gem ${l.gemini.max}ms / Jev ${l.jev.max}ms |
 | **Service Failures** | ${o.geminiFailureCount} | ${o.jevFailureCount} | API, schema, or timeout failures |
 
+### Gemini Diagnostics & Failure Breakdown
+- **Successful Model Evaluations**: ${o.geminiSuccessCount} / ${meta.datasetSize}
+- **Fail-Closed Evaluations**: ${o.geminiFailureCount} / ${meta.datasetSize}
+- **API Errors**: ${o.geminiApiErrors}
+- **JSON Parse Errors**: ${o.geminiJsonParseErrors}
+- **Schema Errors**: ${o.geminiSchemaErrors}
+- **Empty Responses**: ${o.geminiEmptyResponses}
+- **Other Errors**: ${o.geminiOtherErrors}
+- **Genuine Model UNKNOWN (Valid Inference)**: ${o.geminiGenuineUnknownCount}
+
 ---
 
 ## Global Binary Security Confusion Matrix (Dataset-Wide)
