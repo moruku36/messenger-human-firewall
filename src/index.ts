@@ -63,9 +63,11 @@ export async function runWatcherLoop(): Promise<void> {
   const config = getConfig();
 
   console.log('====================================================');
-  console.log('🛡️  Messenger Human Firewall (Phase 4: Dry Run)    🛡️');
+  console.log('🛡️  Messenger Human Firewall                       🛡️');
   console.log('====================================================');
-  console.log(`[Config] Dry Run Mode  : ${config.DRY_RUN} (No message will be sent)`);
+  console.log(
+    `[Config] Dry Run Mode  : ${config.DRY_RUN}${config.DRY_RUN ? ' (No message will be sent)' : ' (LIVE: controlled send enabled)'}`,
+  );
   console.log(`[Config] LLM Provider  : ${config.LLM_PROVIDER}`);
   console.log(`[Config] Browser Data  : ${config.BROWSER_USER_DATA_DIR}`);
   console.log(`[Config] Poll Interval : ${config.WATCH_POLL_INTERVAL_SECONDS}s`);

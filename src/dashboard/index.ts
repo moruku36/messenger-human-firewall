@@ -1,6 +1,8 @@
+import { getConfig } from '../core/index.js';
 import { createDashboardServer } from './server.js';
 
-const port = Number(process.env.DASHBOARD_PORT || 3000);
+const config = getConfig();
+const port = config.PORT;
 const dashboard = createDashboardServer({ port });
 
 dashboard.start().then(() => {
