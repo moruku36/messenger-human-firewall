@@ -23,12 +23,33 @@ const PositiveIntSchema = (min: number, max: number, defaultVal: string) =>
         .max(max, { message: `Value must be at most ${max}` }),
     );
 
+const ProbabilitySchema = (defaultVal: string) =>
+  z
+    .string()
+    .default(defaultVal)
+    .refine((val) => !isNaN(Number(val)), { message: 'Must be a valid number' })
+    .transform((val) => Number.parseFloat(val))
+    .pipe(
+      z
+        .number()
+        .min(0, { message: 'Value must be at least 0' })
+        .max(1, { message: 'Value must be at most 1' }),
+    );
+
 export const ConfigSchema = z.object({
   DRY_RUN: BooleanStringSchema.default('true'),
   PAUSE_ALL: BooleanStringSchema.default('false'),
   LLM_PROVIDER: z.literal('gemini').default('gemini'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
+  // TypeSafe Jev Configuration
+  JEV_ENABLED: BooleanStringSchema.default('false'),
+  JEV_SHADOW_MODE: BooleanStringSchema.default('true'),
+  TYPESAFE_API_KEY: z.string().optional(),
+  JEV_MODEL: z.string().default('jev-latest'),
+  JEV_TIMEOUT_MS: PositiveIntSchema(100, 60000, '5000'),
+  JEV_HIGH_RISK_THRESHOLD: ProbabilitySchema('0.85'),
+  JEV_MIN_CONFIDENCE: ProbabilitySchema('0.80'),
   BROWSER_USER_DATA_DIR: z.string().default('data/browser-profile'),
   HEADLESS: BooleanStringSchema.default('false'),
   MAX_REPLIES_PER_THREAD_PER_DAY: PositiveIntSchema(1, 100, '20'),
