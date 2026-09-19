@@ -280,6 +280,23 @@ npm run lint
 
 ---
 
+## セキュリティトリアージ・ベンチマーク (Security Triage Benchmark)
+
+本リポジトリでは、Shadow Modeで常駐するTypeSafe JevとProduction Geminiの判定性能を定量的かつ安全に検証するため、**100件の固定Synthetic Dataset**を用いたオフライン／ライブ評価スイートを備えています。詳細は [benchmarks/README.md](benchmarks/README.md) を参照してください。
+
+```bash
+# オフライン単体テスト（CIセーフ、Mockクライアント）
+npm run benchmark:offline
+
+# 5ケースのスモークテスト（要 APIキー）
+npm run benchmark:smoke
+
+# 100ケースの完全ベンチマーク実行（要 APIキー）
+npm run benchmark
+```
+
+---
+
 ## 既知の制限事項 (Known Limitations)
 
 - Facebook MessengerのDOM構造の変更により、定期的なセレクタのメンテナンスが必要になる場合があります。

@@ -16,7 +16,10 @@
     "resume": "tsx src/cli/control.ts resume",
     "status": "tsx src/cli/control.ts status",
     "dashboard": "tsx src/dashboard/index.ts",
-    "login": "tsx src/cli/login.ts"
+    "login": "tsx src/cli/login.ts",
+    "benchmark": "tsx benchmarks/run-benchmark.ts",
+    "benchmark:smoke": "tsx benchmarks/run-benchmark.ts --smoke",
+    "benchmark:offline": "vitest run tests/benchmark.test.ts"
   },
   "keywords": [
     "facebook-messenger",
