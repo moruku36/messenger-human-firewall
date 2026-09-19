@@ -212,10 +212,6 @@ export class FirewallPipeline {
       console.log(`[Controlled Gate]: BLOCKED -> ${controlledReason}`);
     }
 
-    if (result.comparison) {
-      console.log(`[Shadow Decision]: Jev [${result.comparison.jevAction}] (Agreement: ${result.comparison.actionAgreement ? 'MATCH' : 'DIFF'}, Reason: ${result.comparison.jevReasonCode}, Latency: ${result.comparison.jevLatencyMs}ms)`);
-    }
-
     console.log(`[Execution Mode] : ${isDryRun ? 'DRY_RUN=true (Console only)' : (actuallySent ? 'LIVE_DISPATCHED' : 'CONTROLLED_HELD')}`);
     console.log('====================================================\n');
   }

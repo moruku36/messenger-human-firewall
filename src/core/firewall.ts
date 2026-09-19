@@ -1,7 +1,7 @@
 import { getConfig } from './config.js';
 import { compareDecisions, renderComparisonSummary } from './comparator.js';
 import { inspectReply, type ReplyGuardResult } from './reply-guard.js';
-import type { Action, ClassificationResult, JevComparisonResult, JevDecision } from './types.js';
+import type { Action, ClassificationResult, JevDecision } from './types.js';
 import type { LLMClassifier, LLMReplyGenerator } from './llm.js';
 import { logEvent } from './logger.js';
 import { determineTimeWasterState, type TimeWasterState } from './state-machine.js';
@@ -13,8 +13,6 @@ export interface FirewallProcessResult {
   guardResult?: ReplyGuardResult;
   finalDecision: 'SEND_ALLOWED' | 'REPLY_BLOCKED' | 'IGNORED' | 'HUMAN_REQUIRED' | 'BLOCK_RECOMMENDED';
   timeWasterState?: TimeWasterState;
-  jevDecision?: JevDecision;
-  comparison?: JevComparisonResult;
 }
 
 export class HumanFirewallCore {
@@ -51,6 +49,12 @@ export class HumanFirewallCore {
   ): Promise<FirewallProcessResult> {
     const config = getConfig();
 
+    if (config.JEV_ENABLED && !config.JEV_SHADOW_MODE) {
+      throw new Error(
+        'JEV_SHADOW_MODE=false is not supported yet. Jev production routing is not implemented.',
+      );
+    }
+
     // 1. Production Classification (Active Source of Truth)
     const classification = await this.classifier.classify(incomingMessage, historySummary);
 
@@ -64,7 +68,7 @@ export class HumanFirewallCore {
     });
 
     // 1.5 Shadow Evaluation: TypeSafe Jev (Observe Only, Non-Blocking)
-    if (config.JEV_ENABLED && this.jevClassifier) {
+    if (config.JEV_ENABLED && config.JEV_SHADOW_MODE && this.jevClassifier) {
       const jev = this.jevClassifier;
       const shadowTask = (async () => {
         try {
