@@ -108,12 +108,14 @@ flowchart TD
  
 詳細なシステムトポロジおよびコンポーネント構成は [ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
  
-### データ送信とプライバシーに関する重要事項
-1. **外部送信対象**: トリアージおよび返信生成のため、受信した相手のメッセージ本文のみが HTTPS 経由で Google Gemini API に送信されます。
-2. **所有者情報の保護**: LLM に対し、ユーザー自身の個人情報（氏名、電話番号、住所、スケジュール等）はプロンプトに一切与えません（Zero-Context Prompting）。
-3. **ローカル永続化**: ローカル DB（SQLite）および標準出力ログにはメッセージ本文を平文で保存せず、SHA-256 ハッシュと安全なメタデータのみを記録します。
-4. **コンソール非表示**: 送信候補テキストおよびLLMの判定理由はデフォルトでマスク表示されます（内容を点検する場合は `DEBUG=true` を指定）。
-5. **利用規約・データ保護**: ご利用の Google Cloud / Gemini API アカウントにおけるデータ保持・学習ポリシー（有料 Tier でのオプトアウト等）を事前にご確認ください。
+### データ送信とプライバシーに関する重要事項 (Data Privacy Policy)
+1. **外部送信対象**: トリアージ（TypeSafe Jev）および返信文生成（Google Gemini）のため、受信メッセージ本文と最小限の会話要約のみが HTTPS 経由で各 API に送信されます。
+2. **所有者情報の保護 (Zero-Owner-Context)**: ローカルの秘密鍵、セッションCookie、環境変数、および所有者自身の個人プロファイル情報（本名、住所、電話番号等）はプロンプトに一切追加・送信されません。
+   > [!NOTE]
+   > 受信メッセージ本文自体に送信者自身の個人情報（電話番号、氏名等）が含まれる場合、それらはトリアージ判定のために Jev / Gemini へ送信されます。
+3. **ローカル永続化**: ローカル DB（SQLite）および標準出力ログにはメッセージ本文を平文で保存せず、SHA-256 ハッシュと安全なメタデータ（reasonCode 等）のみを記録します。
+4. **コンソール非表示**: 送信候補テキストおよび LLM の判定理由はデフォルトでマスク表示されます（内容を点検する場合は `DEBUG=true` を指定）。
+5. **利用規約・データ保護**: ご利用の Google Cloud / Gemini API および TypeSafe AI アカウントにおけるデータ保持・学習ポリシーをご確認ください。
 
 ---
 
@@ -138,7 +140,7 @@ flowchart TD
 
 ## 多層防御アーキテクチャ (Defense-in-Depth)
 
-1. **Zero-Context Prompting**: LLMに所有者の個人情報（住所、電話番号、勤務先等）を渡さないコンテキスト設計。
+1. **Zero-Owner-Context Prompting**: ローカルの秘密情報や所有者プロファイルを LLM / Jev に渡さないコンテキスト設計。
 2. **Untrusted Input 原則**: 相手からのメッセージは未信頼の外部入力として扱い、システムプロンプトの強固なガードレールでPrompt Injectionを抑制。
 3. **ローカル二重検査 (Reply Guard)**: LLMの出力結果を送信直前にローカルの正規表現・ルールベースで検査し、個人情報・URL・合意フレーズをブロック。
 4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
@@ -173,31 +175,80 @@ cp .env.example .env
 ```
 
 `.env` に必要な項目を設定します：
-- `GEMINI_API_KEY`: Google Gemini API Key
+- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
+- `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
-- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（Jev Shadow Mode を有効化する場合のみ必要）
 
 ---
 
-## TypeSafe Jev / System One Shadow Triage (Experimental)
+## TypeSafe Jev: Production Triage & Architecture
 
-本システムは、TypeSafe AI の System One モデル **Jev** を Shadow Mode として統合しています。
+本システムでは、TypeSafe AI の System One モデル **Jev** を **本番トリアージ分類器（Production Triage Classifier）** として採用しています。
 
-### アーキテクチャと責務の分離
-- **Google Gemini (Production Decision & Reply Generator)**:
-  - 受信メッセージに対する最終アクション判定（Source of Truth）および返信文生成を担当。
-- **TypeSafe Jev (Shadow Mode / Semantic Triage)**:
-  - 高速な構造化シグナル判定（Choice / Noul / Score）に特化。返信文の自由生成は行いません。
-- **Deterministic Policy Engine (`src/core/jev-policy.ts`)**:
-  - Jevが算出した Typed Signals（脅威度、認証要求、金銭要求、インジェクション確率、カテゴリ等）を純粋な TypeScript ルールに入力し、決定論的にアクションをマッピング。
-- **Safe Comparison Telemetry (`src/core/comparator.ts`)**:
-  - メッセージ平文や機微情報を一切残さず、非機微なメトリクス、ハッシュ、reasonCode（`JEV_SCAM_HIGH_CONFIDENCE`, `JEV_CREDENTIAL_REQUEST` 等）のみで Gemini と Jev の判定一致度を並行観測。
+```text
+Incoming Messenger Message
+        │
+        ▼
+TypeSafe Jev
+Production Triage
+        │
+        ▼
+Typed Semantic Signals
+(Choice, Noul, Continuous Expected Risk Score)
+        │
+        ▼
+Deterministic TypeScript Policy (jev-policy.ts)
+        │
+        ├── IGNORE              (Gemini API calls = 0)
+        ├── HUMAN_REQUIRED      (Gemini API calls = 0)
+        ├── BLOCK_RECOMMENDED   (Gemini API calls = 0)
+        ├── POLITE_REPLY
+        └── TIME_WASTER
+                   │
+                   ▼
+               Gemini
+             Reply Generation
+                ONLY
+                   │
+                   ▼
+              Reply Guard
+      (Local Regex PII / URL / Commitment Checks)
+                   │
+                   ▼
+              Send Gate
+       (Dry Run / Playwright Dispatch)
+```
 
-### 安全設計インバリアント
-- **Shadow Mode Default**: デフォルトで Jev 判定は観測専用（Shadow Mode）であり、Gemini の本番判定を書き換えません。
-- **Zero-Context Prompting**: Jev に渡されるのは受信メッセージ本文と最小限の会話要約のみ。Cookie、セッション、個人情報は一切送信されません。
-- **Fail-Closed**: Jev のタイムアウト、APIエラー、スキーマ破損、低確信度時は即座に `HUMAN_REQUIRED` 相当へ安全に倒置され、安全基準を迂回しません。
-- **Opt-in Key Requirement**: `TYPESAFE_API_KEY` は Jev を有効化する場合のみ必要です。APIキー未設定でもオフラインテストや通常動作に影響はありません。
+### 責務の明確な分離 (Separation of Concerns)
+1. **TypeSafe Jev (Production Triage)**:
+   - 受信メッセージの高速な構造化シグナル判定（Choice / Noul / Continuous Score）を実行。
+   - 返信文章の自由生成は行わず、セマンティックシグナルの抽出に特化。
+   - **Active Jev Mode（`JEV_ENABLED=true, JEV_SHADOW_MODE=false`）では、Jevがトリアージの本番 Source of Truth となります。**
+2. **Deterministic TypeScript Policy (`src/core/jev-policy.ts`)**:
+   - Jev が出力した型付きシグナル（脅威度、認証搾取、金銭要求、インジェクション、不審リンク、確信度等）を純粋関数で安全ルールに照合し、決定論的にアクションをマッピング。
+   - `IGNORE`, `HUMAN_REQUIRED`, `BLOCK_RECOMMENDED` に分岐した場合、**Gemini API 呼び出し回数は完全に 0 回**となります（不要な LLM 呼び出し・コスト・API 枯渇を防止）。
+3. **Google Gemini (Reply Generation ONLY)**:
+   - 返信が必要な `POLITE_REPLY` / `TIME_WASTER` の場合のみ、安全な返信文生成器として呼び出されます。トリアージ分類には一切呼び出されません。
+   - 万が一 Gemini の返信生成がレートリミット（HTTP 429）やネットワーク障害等で失敗した場合、**Fail-Closed により安全に `HUMAN_REQUIRED` に倒置**され、メッセージ送信は行われません。
+4. **Local Reply Guard**:
+   - 生成された返信文は送信直前にローカルの厳格な正規表現・ルールで二重検査され、危険パターンが検知された場合は即時遮断（`REPLY_BLOCKED`）されます。
+
+### Phase 2 合成ベンチマークの観測結果 (Synthetic Benchmark Notes)
+Phase 2 において、100 件の合成セキュリティトリアージデータセット（`benchmarks/security-triage-v1.json`）を用いた Jev API 評価を実施しました：
+- **Jev API 接続安定性**: 100/100 (100% 成功、スキーマエラー・タイムアウト・HTTP エラー 0 件)
+- **カテゴリ分類精度**: 94.0%
+- **アクション判定精度**: 82.0%
+- **高リスク・脅威メッセージのリコール率**: 100%
+- **重大な見逃し（Critical Undershoots）**: 0 件（脅威や重大詐欺を `POLITE_REPLY` や `IGNORE` に誤判定した例は皆無）
+- **レイテンシ**: 平均 ~1,700ms
+
+> [!NOTE]
+> **注意事項**: 上記の数値は Phase 2 の合成評価データセット（100件）における実験的観測結果であり、未知のあらゆる実世界メッセージに対する安全性を将来にわたって保証するものではありません。また、評価時の Gemini API (Free Tier) はクォータ枯渇（HTTP 429）により Fail-Closed が作動したため、Gemini との対照比較はオフラインテストおよび個別ケースでの定性評価にとどまっています。
+
+### 動作モードの切り替え
+- **Production Active Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=false`)**: 推奨。Jev が本番トリアージを担当し、Gemini は返信生成のみ担当。
+- **Shadow Telemetry Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=true`)**: Gemini がトリアージを行い、Jev がバックグラウンドで並行観測ログを記録。
+- **Legacy Mode (`JEV_ENABLED=false`)**: Gemini のみがトリアージと返信生成を担当。
 
 
 ## 使い方
