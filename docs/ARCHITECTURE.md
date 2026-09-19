@@ -7,39 +7,51 @@
 </p>
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│ Local Host Machine (Trusted & Controlled Environment)      │
-│                                                            │
-│  [Playwright Browser]                                      │
-│    Messenger Message Requests                              │
-│         │                                                  │
-│         ▼                                                  │
-│  [Browser Watcher & Validator]                             │
-│         │                                                  │
-│         ├──────────────► [SQLite State Store]              │
-│         │                 (sha256 hashes & counters only)  │
-│         │                                                  │
-│         ▼ (HTTPS: Stranger message text only)              │
-│    ═══════════════════════════════════════════════╗        │
-│                                                   ║        │
-│  [Reply Guard (Safety Regex & Policies)] ◄────────╫────────┼───┐
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Controlled Send Gate]                           ║        │   │
-│    (Strict Thread Match, 15s interval, 24h cap)   ║        │   │
-│         │                                         ║        │   │
-│         ▼                                         ║        │   │
-│  [Playwright Dispatch to Active Thread]           ║        │   │
-└───────────────────────────────────────────────────╫────────┘   │
-                                                    ║             │
-                                 Internet Boundary  ║             │
-                                                    ▼             │
-                                      ┌───────────────────────┐   │
-                                      │ Third-Party Cloud     │   │
-                                      │ Google Gemini API     │───┘
-                                      │ (gemini-3.6-flash)    │
-                                      │ Header: x-goog-api-key│
-                                      └───────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Local Host Machine (Trusted & Controlled Environment)                           │
+│                                                                                 │
+│  [Playwright Browser]                                                           │
+│    Messenger Message Requests                                                   │
+│         │                                                                       │
+│         ▼                                                                       │
+│  [Browser Watcher & Validator]                                                  │
+│         │                                                                       │
+│         ├──────────────────────────► [SQLite State Store]                       │
+│         │                             (sha256 hashes, quotas & counters only)   │
+│         │                                                                       │
+│         ▼ (1. HTTPS: Stranger message & sanitized context)                      │
+│    ═════════════════════════════════════════════════════════════╗               │
+│                                                                 ║               │
+│  [Deterministic Policy (jev-policy.ts)] ◄───────────────────────╫───────────┐   │
+│         │                                                       ║           │   │
+│         ├── IGNORE / HUMAN_REQ / BLOCK (Gemini calls = 0)       ║           │   │
+│         │                                                       ║           │   │
+│         ▼ (POLITE_REPLY / TIME_WASTER only)                     ║           │   │
+│         │                                                       ║           │   │
+│         ▼ (2. HTTPS: Reply generation prompt)                   ║           │   │
+│    ═════════════════════════════════════════════════════════╗   ║           │   │
+│                                                             ║   ║           │   │
+│  [Reply Guard (Safety Regex & Policies)] ◄──────────────────╫───╫───────┐   │   │
+│         │                                                   ║   ║       │   │   │
+│         ▼                                                   ║   ║       │   │   │
+│  [Controlled Send Gate]                                     ║   ║       │   │   │
+│    (Strict Thread Match, 15s interval, 24h cap, Kill Switch)║   ║       │   │   │
+│         │                                                   ║   ║       │   │   │
+│         ▼                                                   ║   ║       │   │   │
+│  [Playwright Dispatch to Active Thread]                     ║   ║       │   │   │
+└─────────────────────────────────────────────────────────────╫───╫───────┘   │   │
+                                                              ║   ║           │   │
+                                           Internet Boundary  ║   ║           │   │
+                                                              ▼   ▼           │   │
+                                ┌─────────────────────────────────────────┐   │   │
+                                │ Third-Party Cloud AI Providers          │   │   │
+                                │                                         │   │   │
+                                │ 1. TypeSafe Jev API (Production Triage) ├───┘   │
+                                │    Header: Authorization: Bearer <key>  │       │
+                                │                                         │       │
+                                │ 2. Google Gemini API (Reply Generation) ├───────┘
+                                │    Header: x-goog-api-key               │
+                                └─────────────────────────────────────────┘
 ```
 
 ---
@@ -52,17 +64,19 @@
    - メッセージ本文の SHA-256 ハッシュをローカル SQLite (`src/core/storage.ts`) に照合して重複排除。
 
 2. **Human Firewall AI (`src/llm/gemini.ts` & `src/llm/jev.ts`)**:
-   - **Google Gemini (Active / Production Source of Truth)**:
-     - メッセージの分類・トリアージおよび安全な返信文章生成（`POLITE_REPLY` / `TIME_WASTER`）を担当。
-   - **TypeSafe Jev (Shadow Mode / Experimental Semantic Triage)**:
-     - `@typesafe-ai/sdk` による高速な Typed Decision（Choice / Noul / Score）。
-     - 返信文章は生成せず、構造化シグナル（`category`, `credentialRequest`, `moneyRequest`, `threatOrUrgency`, `promptInjection`, `suspiciousExternalLink`, `overallRisk`）の抽出に特化。
+   - **TypeSafe Jev (Production Triage Classifier - Active Mode)**:
+     - `@typesafe-ai/sdk` による高速な Typed Decision（Choice / Noul / Continuous Score）。
+     - 受信メッセージのセマンティックトリアージにおける本番 Source of Truth。返信文章の自由生成は行いません。
    - **Deterministic Decision Policy (`src/core/jev-policy.ts`)**:
      - Jev の Typed Signal を純粋な TypeScript ルールに入力し、最終 Action（`IGNORE`, `POLITE_REPLY`, `TIME_WASTER`, `HUMAN_REQUIRED`, `BLOCK_RECOMMENDED`）を決定論的に導出。
+     - `IGNORE`, `HUMAN_REQUIRED`, `BLOCK_RECOMMENDED` 時は Gemini API 呼び出しを行いません（APIコール数 = 0）。
+   - **Google Gemini (Reply Generator ONLY in Active Mode)**:
+     - Jev の判定が `POLITE_REPLY` または `TIME_WASTER` の場合のみ、コンテキストに応じた安全な返信文章を生成。
+     - 生成失敗時は Fail-Closed により即座に `HUMAN_REQUIRED` に倒置し送信を停止。
    - **Safe Telemetry & Comparator (`src/core/comparator.ts`)**:
-     - メッセージ本文や秘密情報を一切残さず、非機微なメトリクス・ハッシュ・reasonCode のみで両者の判定（一致/不一致、確信度、レイテンシ）を比較ログ記録。
+     - Shadow Mode 時において、メッセージ本文や秘密情報を一切残さず、非機微なメトリクス・ハッシュ・reasonCode のみで両者の判定（一致/不一致、確信度、レイテンシ）を比較ログ記録。
    - **Fail-Closed & Safety Invariants**:
-     - Jev のタイムアウト・API障害・パースエラー時も安全基準を下げず、安全側（`HUMAN_REQUIRED`）へ自動倒置（Fail-Closed）。Gemini側の本番パイプラインを阻害しません。
+     - Jev のタイムアウト・API障害・パースエラー時も安全基準を下げず、安全側（`HUMAN_REQUIRED`）へ自動倒置（Fail-Closed）。Gemini 分類への安易なフォールバックは行いません。
 
 3. **Decision & State Machine (`src/core/firewall.ts`, `src/core/state-machine.ts`)**:
    - ターン数に応じた対話状態の遷移（`curious` ➜ `deep_probing` ➜ `hesitant_closing`）。
@@ -78,30 +92,38 @@
 
 ---
 
-## 3. Shadow Triage Architecture (Target Architecture)
+## 3. Production Triage Pipeline Architecture
 
 ```text
-Incoming Message
-       │
-       ├─────────────────────────────────────────┐
-       ▼                                         ▼
-[Gemini Classifier] (Active Source of Truth)  [Jev Semantic Triage] (Shadow Mode)
-       │                                         │ (Typed Semantic Signals)
-       │                                         ▼
-       │                              [Deterministic Policy Engine]
-       │                                         │
-       │                                         ▼ (Shadow Action Decision)
-       ▼                                         │
-[Production Decision]                            │
-       │                                         │
-       ├─────────────────► [Safe Telemetry] ◄────┘
-       ▼                   (Comparison Metrics, Hashes, Agreement)
-[Gemini Reply Generator]
-       │
-       ▼
-[Existing Reply Guard]
-       │
-       ▼
-[Controlled Send Gate]
+Incoming Messenger Message
+        │
+        ▼
+TypeSafe Jev
+Production Triage
+        │
+        ▼
+Typed Semantic Signals (Choice / Noul / Score)
+        │
+        ▼
+Deterministic TypeScript Policy (jev-policy.ts)
+        │
+        ├── IGNORE              ──────────────┐
+        ├── HUMAN_REQUIRED      ──────────────┤ (Gemini API calls = 0)
+        ├── BLOCK_RECOMMENDED   ──────────────┘
+        │
+        ├── POLITE_REPLY
+        └── TIME_WASTER
+                   │
+                   ▼
+               Gemini
+             Reply Generation
+                ONLY
+                   │ (Fail-Closed to HUMAN_REQUIRED on error)
+                   ▼
+              Reply Guard
+      (Local Regex PII / URL / Commitment Checks)
+                   │
+                   ▼
+              Send Gate
+       (Dry Run / Playwright Dispatch)
 ```
-

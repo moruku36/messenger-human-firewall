@@ -15,6 +15,61 @@ export interface FirewallProcessResult {
   timeWasterState?: TimeWasterState;
 }
 
+/**
+ * Adapter converting Jev's typed security decision into the core ClassificationResult.
+ * Preserves deterministic security decisions without exposing internal Jev structures to generic pipelines.
+ */
+export function jevDecisionToClassification(decision: JevDecision): ClassificationResult {
+  switch (decision.action) {
+    case 'IGNORE':
+      return {
+        category: decision.category,
+        action: 'IGNORE',
+        risk: decision.risk,
+        reason: decision.reason,
+      };
+    case 'HUMAN_REQUIRED':
+      return {
+        category: decision.category,
+        action: 'HUMAN_REQUIRED',
+        risk: decision.risk,
+        reason: decision.reason,
+      };
+    case 'BLOCK_RECOMMENDED':
+      return {
+        category: decision.category,
+        action: 'BLOCK_RECOMMENDED',
+        risk: decision.risk,
+        reason: decision.reason,
+      };
+    case 'POLITE_REPLY':
+      return {
+        category: decision.category,
+        action: 'POLITE_REPLY',
+        risk: decision.risk,
+        reason: decision.reason,
+        reply: 'どのようなご用件でしょうか？',
+      };
+    case 'TIME_WASTER':
+      return {
+        category: decision.category,
+        action: 'TIME_WASTER',
+        risk: decision.risk,
+        reason: decision.reason,
+        reply: '具体的にどのようなお話でしょうか？詳しく教えていただけますか？',
+      };
+    default: {
+      const _exhaustive: never = decision.action;
+      return {
+        category: 'UNKNOWN',
+        action: 'HUMAN_REQUIRED',
+        risk: 80,
+        reason: `Unrecognized Jev action: ${String(_exhaustive)}`,
+      };
+    }
+  }
+}
+
 export class HumanFirewallCore {
   private pendingShadowTasks = new Set<Promise<void>>();
 
@@ -35,11 +90,16 @@ export class HumanFirewallCore {
 
   /**
    * Processes an incoming message:
-   * 1. Classify via LLM (Gemini as Production Source of Truth)
-   * 1.5 Shadow Mode: Classify via TypeSafe Jev in parallel/shadow, compare and record telemetry
-   * 2. Generate candidate reply (if POLITE_REPLY or TIME_WASTER)
-   * 3. Run candidate reply through Reply Guard (PII, URL, commitment filters)
-   * 4. Return structured decision
+   * Modes:
+   * 1. Active Jev Mode (JEV_ENABLED=true, JEV_SHADOW_MODE=false):
+   *    - TypeSafe Jev is Production Source of Truth for classification.
+   *    - Gemini is never called for classification.
+   *    - Gemini is invoked strictly for reply generation (POLITE_REPLY / TIME_WASTER).
+   * 2. Shadow Mode (JEV_ENABLED=true, JEV_SHADOW_MODE=true):
+   *    - Gemini classifies in production.
+   *    - TypeSafe Jev evaluates concurrently in non-blocking shadow observation.
+   * 3. Legacy Mode (JEV_ENABLED=false):
+   *    - Legacy Gemini classification only.
    */
   public async processMessage(
     incomingMessage: string,
@@ -49,51 +109,82 @@ export class HumanFirewallCore {
   ): Promise<FirewallProcessResult> {
     const config = getConfig();
 
+    let classification: ClassificationResult;
+
+    // 1. Classification Routing
     if (config.JEV_ENABLED && !config.JEV_SHADOW_MODE) {
-      throw new Error(
-        'JEV_SHADOW_MODE=false is not supported yet. Jev production routing is not implemented.',
-      );
-    }
+      // Active Jev Production Triage
+      if (!this.jevClassifier) {
+        throw new Error('JevClassifier instance is required when JEV_ENABLED=true and JEV_SHADOW_MODE=false.');
+      }
 
-    // 1. Production Classification (Active Source of Truth)
-    const classification = await this.classifier.classify(incomingMessage, historySummary);
+      const jevDecision = await this.jevClassifier.evaluate(incomingMessage, historySummary);
+      classification = jevDecisionToClassification(jevDecision);
 
-    logEvent({
-      event: 'CLASSIFIED',
-      threadHash,
-      category: classification.category,
-      action: classification.action,
-      risk: classification.risk,
-      reason: classification.reason,
-    });
+      logEvent({
+        event: 'CLASSIFIED',
+        threadHash,
+        category: classification.category,
+        action: classification.action,
+        risk: classification.risk,
+        reasonCode: jevDecision.reasonCode,
+        reason: classification.reason,
+        details: {
+          classifierSource: 'jev',
+          jevCategory: jevDecision.category,
+          jevAction: jevDecision.action,
+          jevConfidence: jevDecision.signals?.categoryConfidence,
+          jevLatencyMs: jevDecision.latencyMs,
+          jevSuccess: jevDecision.success,
+          jevReasonCode: jevDecision.reasonCode,
+          triggeredSignals: jevDecision.triggeredSignals ? jevDecision.triggeredSignals.join(', ') : undefined,
+          primarySignal: jevDecision.primarySignal,
+        },
+      });
+    } else {
+      // Legacy or Shadow Mode: Gemini is production source of truth for classification
+      classification = await this.classifier.classify(incomingMessage, historySummary);
 
-    // 1.5 Shadow Evaluation: TypeSafe Jev (Observe Only, Non-Blocking)
-    if (config.JEV_ENABLED && config.JEV_SHADOW_MODE && this.jevClassifier) {
-      const jev = this.jevClassifier;
-      const shadowTask = (async () => {
-        try {
-          const jevDecision = await jev.evaluate(incomingMessage, historySummary);
-          const comparison = compareDecisions(threadHash, classification, jevDecision);
-          renderComparisonSummary(comparison);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          const jevDecision: JevDecision = {
-            action: 'HUMAN_REQUIRED',
-            category: 'UNKNOWN',
-            risk: 80,
-            reasonCode: 'JEV_API_ERROR',
-            reason: `Jev shadow evaluation unexpected failure: ${msg}`,
-            success: false,
-          };
-          compareDecisions(threadHash, classification, jevDecision);
-        }
-      })()
-        .catch(() => {})
-        .finally(() => {
-          this.pendingShadowTasks.delete(shadowTask);
-        });
+      logEvent({
+        event: 'CLASSIFIED',
+        threadHash,
+        category: classification.category,
+        action: classification.action,
+        risk: classification.risk,
+        reason: classification.reason,
+        details: {
+          classifierSource: 'gemini',
+        },
+      });
 
-      this.pendingShadowTasks.add(shadowTask);
+      // Shadow Mode: Evaluate Jev in parallel non-blocking background task
+      if (config.JEV_ENABLED && config.JEV_SHADOW_MODE && this.jevClassifier) {
+        const jev = this.jevClassifier;
+        const shadowTask = (async () => {
+          try {
+            const jevDecision = await jev.evaluate(incomingMessage, historySummary);
+            const comparison = compareDecisions(threadHash, classification, jevDecision);
+            renderComparisonSummary(comparison);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const jevDecision: JevDecision = {
+              action: 'HUMAN_REQUIRED',
+              category: 'UNKNOWN',
+              risk: 80,
+              reasonCode: 'JEV_API_ERROR',
+              reason: `Jev shadow evaluation unexpected failure: ${msg}`,
+              success: false,
+            };
+            compareDecisions(threadHash, classification, jevDecision);
+          }
+        })()
+          .catch(() => {})
+          .finally(() => {
+            this.pendingShadowTasks.delete(shadowTask);
+          });
+
+        this.pendingShadowTasks.add(shadowTask);
+      }
     }
 
     // 2. Action branching
@@ -132,9 +223,34 @@ export class HumanFirewallCore {
 
     const timeWasterState = replyAction === 'TIME_WASTER' ? determineTimeWasterState(replyCount) : undefined;
 
-    let reply = classification.reply;
-    if (!reply || replyAction === 'TIME_WASTER') {
-      reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary, timeWasterState);
+    let reply: string;
+    const isJevActive = config.JEV_ENABLED && !config.JEV_SHADOW_MODE;
+    // In Legacy or Shadow mode, reuse existing classification.reply for POLITE_REPLY to prevent duplicate Gemini calls
+    if (!isJevActive && replyAction === 'POLITE_REPLY' && classification.reply) {
+      reply = classification.reply;
+    } else {
+      try {
+        reply = await this.generator.generateReply(replyAction, incomingMessage, historySummary, timeWasterState);
+      } catch {
+        logEvent({
+          event: 'ERROR',
+          threadHash,
+          category: classification.category,
+          action: 'HUMAN_REQUIRED',
+          risk: 80,
+          reasonCode: 'REPLY_GENERATION_FAILED',
+          reason: 'Reply generation failed. Escalating to human.',
+          details: {
+            statusMessage: 'Reply generation failed; escalated to human.',
+          },
+        });
+
+        return {
+          classification,
+          finalDecision: 'HUMAN_REQUIRED',
+          timeWasterState,
+        };
+      }
     }
 
     logEvent({

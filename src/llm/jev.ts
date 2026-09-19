@@ -8,12 +8,15 @@ import {
 } from '../core/jev-policy.js';
 import type { Category, JevDecision, JevSignals } from '../core/types.js';
 
+import type { ThreadStore } from '../core/storage.js';
+
 export interface JevClassifierOptions {
   apiKey?: string;
   model?: string;
   timeoutMs?: number;
   policyConfig?: JevPolicyConfig;
   client?: TypeSafeClient; // For dependency injection / testing
+  store?: ThreadStore;
 }
 
 export interface JevRawResponse {
@@ -94,6 +97,7 @@ export class JevClassifier {
   private model: string;
   private timeoutMs: number;
   private policyConfig: JevPolicyConfig;
+  private store?: ThreadStore;
 
   constructor(options: JevClassifierOptions = {}) {
     const config = getConfig();
@@ -104,6 +108,7 @@ export class JevClassifier {
       highRiskThreshold: config.JEV_HIGH_RISK_THRESHOLD ?? DEFAULT_JEV_POLICY_CONFIG.highRiskThreshold,
       minConfidence: config.JEV_MIN_CONFIDENCE ?? DEFAULT_JEV_POLICY_CONFIG.minConfidence,
     };
+    this.store = options.store;
 
     if (options.client) {
       this.client = options.client;
@@ -142,6 +147,20 @@ export class JevClassifier {
     historySummary?: string,
   ): Promise<JevDecision> {
     const startTime = Date.now();
+
+    // Strict quota check: Shared MAX_LLM_REQUESTS_PER_DAY limit
+    if (this.store) {
+      const config = getConfig();
+      const recentCount = this.store.getRecentLlmRequestCount(24 * 60 * 60 * 1000);
+      if (recentCount >= config.MAX_LLM_REQUESTS_PER_DAY) {
+        return createFailClosedJevDecision(
+          'JEV_API_ERROR',
+          `Daily LLM request quota reached (${recentCount}/${config.MAX_LLM_REQUESTS_PER_DAY}). Aborting Jev API call for cost protection.`,
+          Date.now() - startTime,
+        );
+      }
+      this.store.recordLlmRequest();
+    }
 
     if (!this.client) {
       if (!this.apiKey) {
@@ -342,13 +361,12 @@ export class JevClassifier {
 
     if (
       typeof overallRisk !== 'number' ||
-      Number.isNaN(overallRisk) ||
-      !Number.isInteger(overallRisk) ||
+      !Number.isFinite(overallRisk) ||
       overallRisk < 0 ||
       overallRisk > 4
     ) {
       throw new Error(
-        `Malformed response: overallRisk score must be an integer between 0 and 4, got ${String(overallRisk)}`,
+        `Malformed response: overallRisk score must be a number between 0 and 4, got ${String(overallRisk)}`,
       );
     }
 

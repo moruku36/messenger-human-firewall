@@ -69,7 +69,12 @@ export async function runWatcherLoop(): Promise<void> {
   console.log(`[Config] LLM Provider  : ${config.LLM_PROVIDER}`);
   console.log(`[Config] Browser Data  : ${config.BROWSER_USER_DATA_DIR}`);
   console.log(`[Config] Poll Interval : ${config.WATCH_POLL_INTERVAL_SECONDS}s`);
-  console.log(`[Config] Jev Shadow Mode: ${config.JEV_ENABLED ? `Active (${config.JEV_MODEL})` : 'Disabled'}`);
+  const jevModeDesc = !config.JEV_ENABLED
+    ? 'Disabled'
+    : config.JEV_SHADOW_MODE
+      ? `Shadow Mode (${config.JEV_MODEL})`
+      : `Production Active (${config.JEV_MODEL})`;
+  console.log(`[Config] Jev Triage    : ${jevModeDesc}`);
   console.log('====================================================\n');
 
   const userDataDir = path.resolve(process.cwd(), config.BROWSER_USER_DATA_DIR);
@@ -80,6 +85,7 @@ export async function runWatcherLoop(): Promise<void> {
         apiKey: config.TYPESAFE_API_KEY,
         model: config.JEV_MODEL,
         timeoutMs: config.JEV_TIMEOUT_MS,
+        store,
       })
     : undefined;
   const firewallCore = new HumanFirewallCore(gemini, gemini, jevClassifier);

@@ -196,13 +196,23 @@ describe('Phase 4 & 6: HumanFirewallCore with Jev Shadow Mode Integration', () =
     expect(mockJevClient.systemOne).not.toHaveBeenCalled();
   });
 
-  it('rejects JEV_SHADOW_MODE=false explicitly as unsupported when JEV_ENABLED=true', async () => {
+  it('activates Jev production routing when JEV_SHADOW_MODE=false', async () => {
     process.env.JEV_ENABLED = 'true';
     process.env.JEV_SHADOW_MODE = 'false';
     resetConfigForTest();
 
     const mockJevClient = {
-      systemOne: vi.fn(),
+      systemOne: vi.fn().mockResolvedValue({
+        answers: {
+          category: { choice: 'NORMAL', confidence: 0.95 },
+          credentialRequest: { noul: 0.01 },
+          moneyRequest: { noul: 0.02 },
+          threatOrUrgency: { noul: 0.0 },
+          promptInjection: { noul: 0.0 },
+          suspiciousExternalLink: { noul: 0.01 },
+          overallRisk: { score: 0.1 },
+        },
+      }),
     } as unknown as TypeSafeClient;
 
     const jevClassifier = new JevClassifier({ client: mockJevClient });
@@ -212,11 +222,9 @@ describe('Phase 4 & 6: HumanFirewallCore with Jev Shadow Mode Integration', () =
       jevClassifier,
     );
 
-    await expect(
-      firewall.processMessage('テストメッセージ', 'thread-hash-unsupported'),
-    ).rejects.toThrowError(
-      'JEV_SHADOW_MODE=false is not supported yet. Jev production routing is not implemented.',
-    );
-    expect(mockJevClient.systemOne).not.toHaveBeenCalled();
+    const result = await firewall.processMessage('テストメッセージ', 'thread-hash-active');
+    expect(result.classification.category).toBe('NORMAL');
+    expect(mockJevClient.systemOne).toHaveBeenCalledTimes(1);
+    expect(mockGeminiClassifier.classify).not.toHaveBeenCalled();
   });
 });
