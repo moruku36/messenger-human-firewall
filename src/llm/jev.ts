@@ -162,26 +162,19 @@ export class JevClassifier {
     const questions = buildJevQuestions();
 
     try {
-      // AbortController timeout guard for hard timeout enforcement
-      const controller = new AbortController();
-      const timeoutHandle = setTimeout(() => controller.abort(), this.timeoutMs);
-
-      let response: unknown;
-      try {
-        response = await this.client.systemOne(
-          {
-            state,
-            questions,
-            model: this.model,
-          },
-          {
-            signal: controller.signal,
-            timeout: this.timeoutMs,
-          },
-        );
-      } finally {
-        clearTimeout(timeoutHandle);
-      }
+      // Rely strictly on SDK internal timeout mechanism (passes options.timeout).
+      // Custom AbortController is omitted to prevent Node 20/22 unhandled native AbortError
+      // termination due to upstream Undici clone/cancel bug (typesafe-sdk-js #2).
+      const response = await this.client.systemOne(
+        {
+          state,
+          questions,
+          model: this.model,
+        },
+        {
+          timeout: this.timeoutMs,
+        },
+      );
 
       const latencyMs = Date.now() - startTime;
       const parsedSignals = this.parseRawResponse(response);
@@ -190,7 +183,13 @@ export class JevClassifier {
       const latencyMs = Date.now() - startTime;
       const errorMsg = err instanceof Error ? err.message : String(err);
 
-      if (errorMsg.includes('abort') || errorMsg.includes('timeout') || latencyMs >= this.timeoutMs) {
+      if (
+        errorMsg.includes('APITimeoutError') ||
+        errorMsg.includes('abort') ||
+        errorMsg.includes('timeout') ||
+        errorMsg.includes('timed out') ||
+        latencyMs >= this.timeoutMs
+      ) {
         return createFailClosedJevDecision(
           'JEV_TIMEOUT',
           `Jev evaluation timed out after ${latencyMs}ms: ${errorMsg}`,
@@ -198,7 +197,12 @@ export class JevClassifier {
         );
       }
 
-      if (errorMsg.includes('Schema') || errorMsg.includes('Malformed')) {
+      if (
+        errorMsg.includes('Schema') ||
+        errorMsg.includes('Malformed') ||
+        errorMsg.includes('missing') ||
+        errorMsg.includes('invalid')
+      ) {
         return createFailClosedJevDecision(
           'JEV_SCHEMA_ERROR',
           `Jev schema or response parsing error: ${errorMsg}`,
@@ -215,7 +219,8 @@ export class JevClassifier {
   }
 
   /**
-   * Safely unpacks and validates the raw response structure returned by @typesafe-ai/sdk.
+   * Safely unpacks and strictly validates the raw response structure returned by @typesafe-ai/sdk.
+   * Throws on any missing, out-of-bounds, or unexpected non-numeric values to guarantee Fail-Closed.
    */
   public parseRawResponse(raw: unknown): JevSignals {
     if (!raw || typeof raw !== 'object') {
@@ -225,58 +230,137 @@ export class JevClassifier {
     const res = raw as Record<string, unknown>;
     const answers = (res.answers || (res.category ? res : null)) as Record<string, unknown> | null;
 
-    if (!answers || typeof answers !== 'object' || !answers.category) {
-      throw new Error('Malformed response: answers.category is missing or invalid');
+    if (!answers || typeof answers !== 'object') {
+      throw new Error('Malformed response: answers object is missing or invalid');
     }
 
-    // Category Choice
-    const catObj = answers.category as { choice?: string; confidence?: number; probabilities?: Record<string, number> } | undefined;
-    if (!catObj || (typeof catObj !== 'object' && typeof catObj !== 'string')) {
-      throw new Error('Malformed response: invalid category format');
+    // 1. Category Choice & Confidence Validation
+    if (!answers.category) {
+      throw new Error('Malformed response: category is missing');
     }
-    const rawChoice = typeof catObj === 'string' ? catObj : (catObj.choice || 'UNKNOWN');
-    const allowedCategories: Category[] = ['NORMAL', 'SALES', 'SPAM', 'SCAM', 'HARASSMENT', 'UNKNOWN'];
-    const category: Category = allowedCategories.includes(rawChoice as Category)
-      ? (rawChoice as Category)
-      : 'UNKNOWN';
-    const categoryConfidence = typeof catObj?.confidence === 'number' ? catObj.confidence : 1.0;
 
-    // Nouls
-    const getProbability = (field: unknown): number => {
-      if (typeof field === 'number') return Math.max(0, Math.min(1, field));
-      if (field && typeof field === 'object') {
-        const noulVal = (field as { noul?: unknown }).noul;
-        if (typeof noulVal === 'number') return Math.max(0, Math.min(1, noulVal));
-      }
-      return 0;
+    const catObj = answers.category as {
+      choice?: unknown;
+      confidence?: unknown;
+      probabilities?: unknown;
     };
 
-    const credentialRequest = getProbability(answers.credentialRequest);
-    const moneyRequest = getProbability(answers.moneyRequest);
-    const threatOrUrgency = getProbability(answers.threatOrUrgency);
-    const promptInjection = getProbability(answers.promptInjection);
-    const suspiciousExternalLink = getProbability(answers.suspiciousExternalLink);
-
-    // Score
-    let overallRisk = 0;
-    let overallRiskScoreValue: number | undefined;
-    const scoreObj = answers.overallRisk;
-    if (typeof scoreObj === 'number') {
-      overallRisk = scoreObj;
-    } else if (scoreObj && typeof scoreObj === 'object') {
-      const sVal = (scoreObj as { score?: unknown; scoreValue?: unknown });
-      if (typeof sVal.score === 'number') {
-        overallRisk = sVal.score;
-      }
-      if (typeof sVal.scoreValue === 'number') {
-        overallRiskScoreValue = sVal.scoreValue;
-      }
+    if (typeof catObj !== 'object' || catObj === null) {
+      throw new Error('Malformed response: category must be a choice object');
     }
+
+    if (typeof catObj.choice !== 'string') {
+      throw new Error('Malformed response: category.choice is missing or not a string');
+    }
+
+    const allowedCategories: Category[] = [
+      'NORMAL',
+      'SALES',
+      'SPAM',
+      'SCAM',
+      'HARASSMENT',
+      'UNKNOWN',
+    ];
+    if (!allowedCategories.includes(catObj.choice as Category)) {
+      throw new Error(`Malformed response: category.choice '${catObj.choice}' is invalid`);
+    }
+    const category = catObj.choice as Category;
+
+    if (catObj.confidence === undefined || catObj.confidence === null) {
+      throw new Error('Malformed response: category.confidence is missing');
+    }
+    if (
+      typeof catObj.confidence !== 'number' ||
+      Number.isNaN(catObj.confidence) ||
+      catObj.confidence < 0 ||
+      catObj.confidence > 1
+    ) {
+      throw new Error(
+        `Malformed response: category.confidence '${String(catObj.confidence)}' must be a number between 0 and 1`,
+      );
+    }
+    const categoryConfidence = catObj.confidence;
+
+    // 2. Required Noul Fields Validation
+    const parseNoul = (name: string): number => {
+      const field = answers[name];
+      if (field === undefined || field === null) {
+        throw new Error(`Malformed response: required Noul field '${name}' is missing`);
+      }
+
+      let val: unknown;
+      if (typeof field === 'number') {
+        val = field;
+      } else if (typeof field === 'object' && field !== null && 'noul' in field) {
+        val = (field as { noul: unknown }).noul;
+      } else {
+        throw new Error(`Malformed response: required Noul field '${name}' is invalid`);
+      }
+
+      if (val === undefined || val === null) {
+        throw new Error(`Malformed response: Noul value in '${name}' is missing`);
+      }
+      if (typeof val !== 'number' || Number.isNaN(val) || val < 0 || val > 1) {
+        throw new Error(
+          `Malformed response: Noul value in '${name}' must be a number between 0 and 1, got ${String(val)}`,
+        );
+      }
+      return val;
+    };
+
+    const credentialRequest = parseNoul('credentialRequest');
+    const moneyRequest = parseNoul('moneyRequest');
+    const threatOrUrgency = parseNoul('threatOrUrgency');
+    const promptInjection = parseNoul('promptInjection');
+    const suspiciousExternalLink = parseNoul('suspiciousExternalLink');
+
+    // 3. OverallRisk Score Validation
+    if (answers.overallRisk === undefined || answers.overallRisk === null) {
+      throw new Error('Malformed response: overallRisk is missing');
+    }
+
+    let overallRisk: number;
+    let overallRiskScoreValue: number | undefined;
+
+    if (typeof answers.overallRisk === 'number') {
+      overallRisk = answers.overallRisk;
+    } else if (typeof answers.overallRisk === 'object' && answers.overallRisk !== null) {
+      const sObj = answers.overallRisk as { score?: unknown; scoreValue?: unknown };
+      if (sObj.score === undefined || sObj.score === null) {
+        throw new Error('Malformed response: overallRisk.score is missing');
+      }
+      if (typeof sObj.score !== 'number') {
+        throw new Error('Malformed response: overallRisk.score must be numeric');
+      }
+      overallRisk = sObj.score;
+      if (typeof sObj.scoreValue === 'number' && !Number.isNaN(sObj.scoreValue)) {
+        overallRiskScoreValue = sObj.scoreValue;
+      }
+    } else {
+      throw new Error('Malformed response: overallRisk must be an object or number');
+    }
+
+    if (
+      typeof overallRisk !== 'number' ||
+      Number.isNaN(overallRisk) ||
+      !Number.isInteger(overallRisk) ||
+      overallRisk < 0 ||
+      overallRisk > 4
+    ) {
+      throw new Error(
+        `Malformed response: overallRisk score must be an integer between 0 and 4, got ${String(overallRisk)}`,
+      );
+    }
+
+    const categoryProbabilities =
+      typeof catObj.probabilities === 'object' && catObj.probabilities !== null
+        ? (catObj.probabilities as Record<string, number>)
+        : undefined;
 
     return {
       category,
       categoryConfidence,
-      categoryProbabilities: catObj?.probabilities,
+      categoryProbabilities,
       credentialRequest,
       moneyRequest,
       threatOrUrgency,

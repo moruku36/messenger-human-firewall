@@ -43,6 +43,8 @@ export function compareDecisions(
     jevLatencyMs: jevDecision.latencyMs ?? 0,
     jevSuccess: jevDecision.success,
     jevReasonCode: jevDecision.reasonCode,
+    triggeredSignals: jevDecision.triggeredSignals,
+    primarySignal: jevDecision.primarySignal,
   };
 
   // Structured Safe Log Event
@@ -64,6 +66,8 @@ export function compareDecisions(
       jevConfidence: jevDecision.signals?.categoryConfidence ?? 0,
       jevSuccess: jevDecision.success,
       jevReasonCode: jevDecision.reasonCode,
+      triggeredSignals: jevDecision.triggeredSignals?.join(', '),
+      primarySignal: jevDecision.primarySignal,
     },
   });
 
@@ -83,6 +87,9 @@ export function renderComparisonSummary(comparison: JevComparisonResult): void {
   console.log(`   Category : Gemini [${comparison.geminiCategory}] vs Jev [${comparison.jevCategory}] (${catMatch})`);
   console.log(`   Action   : Gemini [${comparison.geminiAction}] vs Jev [${comparison.jevAction}] (${actMatch})`);
   console.log(`   Jev Reason: ${comparison.jevReasonCode} | Success: ${comparison.jevSuccess} | Latency: ${comparison.jevLatencyMs}ms`);
+  if (comparison.triggeredSignals && comparison.triggeredSignals.length > 0) {
+    console.log(`   Triggered Signals: [${comparison.triggeredSignals.join(', ')}] -> Primary: ${comparison.primarySignal}`);
+  }
   if (comparison.jevRiskProbabilities) {
     const p = comparison.jevRiskProbabilities;
     console.log(`   Jev Risk Signals: OTP=${(p.credentialRequest * 100).toFixed(0)}%, Money=${(p.moneyRequest * 100).toFixed(0)}%, Threat=${(p.threatOrUrgency * 100).toFixed(0)}%, Injection=${(p.promptInjection * 100).toFixed(0)}%`);

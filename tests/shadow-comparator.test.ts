@@ -85,6 +85,34 @@ describe('Phase 5: Shadow Mode Comparison Telemetry (compareDecisions)', () => {
     expect(comparison.geminiAction).toBe('POLITE_REPLY');
   });
 
+  it('records multiple triggered signals and primarySignal in comparison telemetry', () => {
+    const threadHash = 'hash-thread-multi-signal';
+    const geminiResult: ClassificationResult = {
+      category: 'SCAM',
+      action: 'BLOCK_RECOMMENDED',
+      risk: 90,
+      reason: 'Scam message',
+    };
+
+    const jevDecision: JevDecision = {
+      category: 'HARASSMENT',
+      action: 'HUMAN_REQUIRED',
+      risk: 95,
+      reasonCode: 'JEV_MULTIPLE_HIGH_RISK_SIGNALS',
+      reason: 'Multiple high-risk signals detected',
+      latencyMs: 150,
+      success: true,
+      triggeredSignals: ['threatOrUrgency', 'promptInjection'],
+      primarySignal: 'threatOrUrgency',
+    };
+
+    const comparison = compareDecisions(threadHash, geminiResult, jevDecision);
+
+    expect(comparison.jevReasonCode).toBe('JEV_MULTIPLE_HIGH_RISK_SIGNALS');
+    expect(comparison.triggeredSignals).toEqual(['threatOrUrgency', 'promptInjection']);
+    expect(comparison.primarySignal).toBe('threatOrUrgency');
+  });
+
   it('verifies privacy invariant: raw sensitive chat text is never present in comparison structure', () => {
     const threadHash = 'hash-thread-privacy-check';
     const rawSecretMessage = '私の秘密のパスワードは Secret123 です。';
@@ -116,3 +144,4 @@ describe('Phase 5: Shadow Mode Comparison Telemetry (compareDecisions)', () => {
     expect(serialized).not.toContain('Secret123');
   });
 });
+

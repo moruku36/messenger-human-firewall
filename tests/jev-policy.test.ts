@@ -161,6 +161,38 @@ describe('Phase 3: Deterministic Decision Policy (evaluateJevPolicy)', () => {
     expect(decision.risk).toBe(60);
   });
 
+  it('escalates to HUMAN_REQUIRED with JEV_MULTIPLE_HIGH_RISK_SIGNALS when Prompt Injection + Threat are both high', () => {
+    const signals = createMockSignals({
+      category: 'HARASSMENT',
+      threatOrUrgency: 0.93,
+      promptInjection: 0.96,
+      overallRisk: 4,
+    });
+    const decision = evaluateJevPolicy(signals);
+
+    expect(decision.action).toBe('HUMAN_REQUIRED');
+    expect(decision.reasonCode).toBe('JEV_MULTIPLE_HIGH_RISK_SIGNALS');
+    expect(decision.primarySignal).toBe('threatOrUrgency');
+    expect(decision.triggeredSignals).toContain('threatOrUrgency');
+    expect(decision.triggeredSignals).toContain('promptInjection');
+    expect(decision.reason).toContain('Multiple high-risk signals detected');
+  });
+
+  it('assigns JEV_MULTIPLE_HIGH_RISK_SIGNALS with BLOCK_RECOMMENDED when Credential + Money requests coincide', () => {
+    const signals = createMockSignals({
+      category: 'SCAM',
+      credentialRequest: 0.95,
+      moneyRequest: 0.91,
+      overallRisk: 4,
+    });
+    const decision = evaluateJevPolicy(signals);
+
+    expect(decision.action).toBe('BLOCK_RECOMMENDED');
+    expect(decision.reasonCode).toBe('JEV_MULTIPLE_HIGH_RISK_SIGNALS');
+    expect(decision.primarySignal).toBe('credentialRequest');
+    expect(decision.triggeredSignals).toEqual(['credentialRequest', 'moneyRequest']);
+  });
+
   it('creates fail-closed decision properly on timeouts or API errors', () => {
     const timeoutDecision = createFailClosedJevDecision('JEV_TIMEOUT', 'Request aborted after 5000ms', 5002);
     expect(timeoutDecision.action).toBe('HUMAN_REQUIRED');

@@ -51,64 +51,112 @@ export function evaluateJevPolicy(
 ): JevDecision {
   const { highRiskThreshold, minConfidence } = config;
 
-  // 1. Threat or Urgency detection (Highest severity)
+  // Track all triggered high-risk signals
+  const triggeredSignals: string[] = [];
   if (signals.threatOrUrgency >= highRiskThreshold || signals.category === 'HARASSMENT') {
+    triggeredSignals.push('threatOrUrgency');
+  }
+  if (signals.credentialRequest >= highRiskThreshold) {
+    triggeredSignals.push('credentialRequest');
+  }
+  if (signals.moneyRequest >= highRiskThreshold) {
+    triggeredSignals.push('moneyRequest');
+  }
+  if (signals.promptInjection >= highRiskThreshold) {
+    triggeredSignals.push('promptInjection');
+  }
+  if (signals.suspiciousExternalLink >= highRiskThreshold) {
+    triggeredSignals.push('suspiciousExternalLink');
+  }
+
+  const isMultiple = triggeredSignals.length > 1;
+
+  // 1. Threat or Urgency detection (Highest severity -> HUMAN_REQUIRED)
+  if (triggeredSignals.includes('threatOrUrgency')) {
+    const reasonCode: JevReasonCode = isMultiple ? 'JEV_MULTIPLE_HIGH_RISK_SIGNALS' : 'JEV_THREAT';
+    const reason = isMultiple
+      ? `Multiple high-risk signals detected (${triggeredSignals.join(', ')}). Acute threat urgency dominant.`
+      : `Threat or acute harassment detected with probability ${(signals.threatOrUrgency * 100).toFixed(1)}%`;
+
     return {
       action: 'HUMAN_REQUIRED',
       category: signals.category === 'HARASSMENT' ? 'HARASSMENT' : signals.category,
       risk: Math.max(90, Math.round(signals.threatOrUrgency * 100)),
-      reasonCode: 'JEV_THREAT',
-      reason: `Threat or acute harassment detected with probability ${(signals.threatOrUrgency * 100).toFixed(1)}%`,
+      reasonCode,
+      reason,
       signals,
       latencyMs,
       success: true,
+      triggeredSignals,
+      primarySignal: 'threatOrUrgency',
     };
   }
 
-  // 2. Credential / Secret Exfiltration Request
-  if (signals.credentialRequest >= highRiskThreshold) {
+  // 2. Credential / Secret Exfiltration Request (BLOCK_RECOMMENDED)
+  if (triggeredSignals.includes('credentialRequest')) {
+    const reasonCode: JevReasonCode = isMultiple ? 'JEV_MULTIPLE_HIGH_RISK_SIGNALS' : 'JEV_CREDENTIAL_REQUEST';
+    const reason = isMultiple
+      ? `Multiple high-risk signals detected (${triggeredSignals.join(', ')}). Credential theft dominant.`
+      : `Credential/OTP exfiltration attempt detected with probability ${(signals.credentialRequest * 100).toFixed(1)}%`;
+
     return {
       action: 'BLOCK_RECOMMENDED',
       category: signals.category === 'UNKNOWN' ? 'SCAM' : signals.category,
       risk: Math.max(95, Math.round(signals.credentialRequest * 100)),
-      reasonCode: 'JEV_CREDENTIAL_REQUEST',
-      reason: `Credential/OTP exfiltration attempt detected with probability ${(signals.credentialRequest * 100).toFixed(1)}%`,
+      reasonCode,
+      reason,
       signals,
       latencyMs,
       success: true,
+      triggeredSignals,
+      primarySignal: 'credentialRequest',
     };
   }
 
-  // 3. Unauthorized Money Transfer / Financial Request
-  if (signals.moneyRequest >= highRiskThreshold) {
+  // 3. Unauthorized Money Transfer / Financial Request (BLOCK_RECOMMENDED)
+  if (triggeredSignals.includes('moneyRequest')) {
+    const reasonCode: JevReasonCode = isMultiple ? 'JEV_MULTIPLE_HIGH_RISK_SIGNALS' : 'JEV_MONEY_REQUEST';
+    const reason = isMultiple
+      ? `Multiple high-risk signals detected (${triggeredSignals.join(', ')}). Financial request dominant.`
+      : `Financial transfer or money request detected with probability ${(signals.moneyRequest * 100).toFixed(1)}%`;
+
     return {
       action: 'BLOCK_RECOMMENDED',
       category: signals.category === 'UNKNOWN' ? 'SCAM' : signals.category,
       risk: Math.max(90, Math.round(signals.moneyRequest * 100)),
-      reasonCode: 'JEV_MONEY_REQUEST',
-      reason: `Financial transfer or money request detected with probability ${(signals.moneyRequest * 100).toFixed(1)}%`,
+      reasonCode,
+      reason,
       signals,
       latencyMs,
       success: true,
+      triggeredSignals,
+      primarySignal: 'moneyRequest',
     };
   }
 
-  // 4. Prompt Injection / Jailbreak Attempt
-  if (signals.promptInjection >= highRiskThreshold) {
+  // 4. Prompt Injection / Jailbreak Attempt (BLOCK_RECOMMENDED)
+  if (triggeredSignals.includes('promptInjection')) {
+    const reasonCode: JevReasonCode = isMultiple ? 'JEV_MULTIPLE_HIGH_RISK_SIGNALS' : 'JEV_PROMPT_INJECTION';
+    const reason = isMultiple
+      ? `Multiple high-risk signals detected (${triggeredSignals.join(', ')}). Prompt injection dominant.`
+      : `Adversarial prompt injection attempt detected with probability ${(signals.promptInjection * 100).toFixed(1)}%`;
+
     return {
       action: 'BLOCK_RECOMMENDED',
       category: signals.category === 'UNKNOWN' ? 'SCAM' : signals.category,
       risk: Math.max(85, Math.round(signals.promptInjection * 100)),
-      reasonCode: 'JEV_PROMPT_INJECTION',
-      reason: `Adversarial prompt injection attempt detected with probability ${(signals.promptInjection * 100).toFixed(1)}%`,
+      reasonCode,
+      reason,
       signals,
       latencyMs,
       success: true,
+      triggeredSignals,
+      primarySignal: 'promptInjection',
     };
   }
 
-  // 5. Suspicious External Link
-  if (signals.suspiciousExternalLink >= highRiskThreshold) {
+  // 5. Suspicious External Link (TIME_WASTER)
+  if (triggeredSignals.includes('suspiciousExternalLink')) {
     return {
       action: 'TIME_WASTER',
       category: signals.category === 'UNKNOWN' ? 'SCAM' : signals.category,
@@ -118,6 +166,8 @@ export function evaluateJevPolicy(
       signals,
       latencyMs,
       success: true,
+      triggeredSignals,
+      primarySignal: 'suspiciousExternalLink',
     };
   }
 

@@ -100,6 +100,8 @@ export const SafeLogDetailsSchema = z
     jevConfidence: z.number().optional(),
     jevSuccess: z.boolean().optional(),
     jevReasonCode: z.string().optional(),
+    triggeredSignals: z.string().optional(),
+    primarySignal: z.string().optional(),
   })
   .strict();
 export type SafeLogDetails = z.infer<typeof SafeLogDetailsSchema>;
@@ -137,6 +139,7 @@ export type JevReasonCode =
   | 'JEV_THREAT'
   | 'JEV_PROMPT_INJECTION'
   | 'JEV_SUSPICIOUS_LINK'
+  | 'JEV_MULTIPLE_HIGH_RISK_SIGNALS'
   | 'JEV_SPAM_HIGH_CONFIDENCE'
   | 'JEV_SALES_PROBING'
   | 'JEV_NORMAL_CONVERSATION'
@@ -167,6 +170,8 @@ export interface JevDecision {
   signals?: JevSignals;
   latencyMs?: number;
   success: boolean;
+  triggeredSignals?: string[];
+  primarySignal?: string;
 }
 
 export interface JevComparisonResult {
@@ -189,4 +194,6 @@ export interface JevComparisonResult {
   jevLatencyMs: number;
   jevSuccess: boolean;
   jevReasonCode: JevReasonCode;
+  triggeredSignals?: string[];
+  primarySignal?: string;
 }
