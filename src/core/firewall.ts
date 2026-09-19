@@ -18,11 +18,22 @@ export interface FirewallProcessResult {
 }
 
 export class HumanFirewallCore {
+  private pendingShadowTasks = new Set<Promise<void>>();
+
   constructor(
     private classifier: LLMClassifier,
     private generator: LLMReplyGenerator,
     private jevClassifier?: JevClassifier,
   ) {}
+
+  /**
+   * Test helper to cleanly await background shadow evaluations without blocking production flow.
+   */
+  public async waitForPendingShadowTasks(): Promise<void> {
+    while (this.pendingShadowTasks.size > 0) {
+      await Promise.all(Array.from(this.pendingShadowTasks));
+    }
+  }
 
   /**
    * Processes an incoming message:
@@ -52,35 +63,33 @@ export class HumanFirewallCore {
       reason: classification.reason,
     });
 
-    // 1.5 Shadow Evaluation: TypeSafe Jev (Observe Only)
-    let jevDecision: JevDecision | undefined;
-    let comparison: JevComparisonResult | undefined;
-
+    // 1.5 Shadow Evaluation: TypeSafe Jev (Observe Only, Non-Blocking)
     if (config.JEV_ENABLED && this.jevClassifier) {
-      try {
-        jevDecision = await this.jevClassifier.evaluate(incomingMessage, historySummary);
-        comparison = compareDecisions(threadHash, classification, jevDecision);
-        renderComparisonSummary(comparison);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        jevDecision = {
-          action: 'HUMAN_REQUIRED',
-          category: 'UNKNOWN',
-          risk: 80,
-          reasonCode: 'JEV_API_ERROR',
-          reason: `Jev shadow evaluation unexpected failure: ${msg}`,
-          success: false,
-        };
-        comparison = compareDecisions(threadHash, classification, jevDecision);
-        logEvent({
-          event: 'JEV_ERROR',
-          threadHash,
-          reasonCode: 'JEV_API_ERROR',
-          details: {
-            statusMessage: `Jev shadow evaluation unexpected failure: ${msg}`,
-          },
+      const jev = this.jevClassifier;
+      const shadowTask = (async () => {
+        try {
+          const jevDecision = await jev.evaluate(incomingMessage, historySummary);
+          const comparison = compareDecisions(threadHash, classification, jevDecision);
+          renderComparisonSummary(comparison);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const jevDecision: JevDecision = {
+            action: 'HUMAN_REQUIRED',
+            category: 'UNKNOWN',
+            risk: 80,
+            reasonCode: 'JEV_API_ERROR',
+            reason: `Jev shadow evaluation unexpected failure: ${msg}`,
+            success: false,
+          };
+          compareDecisions(threadHash, classification, jevDecision);
+        }
+      })()
+        .catch(() => {})
+        .finally(() => {
+          this.pendingShadowTasks.delete(shadowTask);
         });
-      }
+
+      this.pendingShadowTasks.add(shadowTask);
     }
 
     // 2. Action branching
@@ -88,8 +97,6 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'IGNORED',
-        jevDecision,
-        comparison,
       };
     }
 
@@ -105,8 +112,6 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'HUMAN_REQUIRED',
-        jevDecision,
-        comparison,
       };
     }
 
@@ -114,8 +119,6 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'BLOCK_RECOMMENDED',
-        jevDecision,
-        comparison,
       };
     }
 
@@ -161,8 +164,6 @@ export class HumanFirewallCore {
         guardResult,
         finalDecision: 'REPLY_BLOCKED',
         timeWasterState,
-        jevDecision,
-        comparison,
       };
     }
 
@@ -172,8 +173,6 @@ export class HumanFirewallCore {
       guardResult,
       finalDecision: 'SEND_ALLOWED',
       timeWasterState,
-      jevDecision,
-      comparison,
     };
   }
 }
