@@ -381,7 +381,56 @@ describe('Phase 2 & 6: JevClassifier Mock Test Suite', () => {
 
     expect(decision.action).toBe('HUMAN_REQUIRED');
     expect(decision.reasonCode).toBe('JEV_SCHEMA_ERROR');
-    expect(decision.reason).toContain('overallRisk score must be an integer between 0 and 4');
+    expect(decision.reason).toContain('overallRisk score must be a number between 0 and 4');
+  });
+
+  it('accepts continuous expected scores (e.g. 0.01, 0.76, 1.07, 2.5, 3.99) without rounding', async () => {
+    const testScores = [0, 0.01, 0.76, 1.07, 2.5, 3.99, 4];
+
+    for (const testScore of testScores) {
+      const mockClient = createMockClient({
+        answers: {
+          category: { choice: 'NORMAL', confidence: 0.95 },
+          credentialRequest: { noul: 0.0 },
+          moneyRequest: { noul: 0.0 },
+          threatOrUrgency: { noul: 0.0 },
+          promptInjection: { noul: 0.0 },
+          suspiciousExternalLink: { noul: 0.0 },
+          overallRisk: { score: testScore },
+        },
+      });
+
+      const classifier = new JevClassifier({ client: mockClient });
+      const decision = await classifier.evaluate('テスト');
+
+      expect(decision.success).toBe(true);
+      expect(decision.reasonCode).not.toBe('JEV_SCHEMA_ERROR');
+      expect(decision.signals?.overallRisk).toBe(testScore);
+    }
+  });
+
+  it('rejects invalid overallRisk values strictly fail-closed', async () => {
+    const invalidScores = [-0.01, 4.01, NaN, Infinity, -Infinity, '3.5', null, undefined];
+
+    for (const invalidScore of invalidScores) {
+      const mockClient = createMockClient({
+        answers: {
+          category: { choice: 'NORMAL', confidence: 0.95 },
+          credentialRequest: { noul: 0.0 },
+          moneyRequest: { noul: 0.0 },
+          threatOrUrgency: { noul: 0.0 },
+          promptInjection: { noul: 0.0 },
+          suspiciousExternalLink: { noul: 0.0 },
+          overallRisk: { score: invalidScore as unknown as number },
+        },
+      });
+
+      const classifier = new JevClassifier({ client: mockClient });
+      const decision = await classifier.evaluate('テスト');
+
+      expect(decision.action).toBe('HUMAN_REQUIRED');
+      expect(decision.reasonCode).toBe('JEV_SCHEMA_ERROR');
+    }
   });
 
   it('handles Prompt Injection + Threat combination with JEV_MULTIPLE_HIGH_RISK_SIGNALS', async () => {

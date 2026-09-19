@@ -157,7 +157,7 @@ export interface JevSignals {
   threatOrUrgency: number; // 0.0 - 1.0 probability
   promptInjection: number; // 0.0 - 1.0 probability
   suspiciousExternalLink: number; // 0.0 - 1.0 probability
-  overallRisk: number; // 0 to 4 (scale index)
+  overallRisk: number; // 0.0 - 4.0 (continuous expected score)
   overallRiskScoreValue?: number; // expectation value
 }
 
