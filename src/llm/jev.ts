@@ -223,15 +223,18 @@ export class JevClassifier {
     }
 
     const res = raw as Record<string, unknown>;
-    const answers = (res.answers || res) as Record<string, unknown>;
+    const answers = (res.answers || (res.category ? res : null)) as Record<string, unknown> | null;
 
-    if (!answers || typeof answers !== 'object') {
-      throw new Error('Malformed response: answers object not found');
+    if (!answers || typeof answers !== 'object' || !answers.category) {
+      throw new Error('Malformed response: answers.category is missing or invalid');
     }
 
     // Category Choice
     const catObj = answers.category as { choice?: string; confidence?: number; probabilities?: Record<string, number> } | undefined;
-    const rawChoice = catObj?.choice || 'UNKNOWN';
+    if (!catObj || (typeof catObj !== 'object' && typeof catObj !== 'string')) {
+      throw new Error('Malformed response: invalid category format');
+    }
+    const rawChoice = typeof catObj === 'string' ? catObj : (catObj.choice || 'UNKNOWN');
     const allowedCategories: Category[] = ['NORMAL', 'SALES', 'SPAM', 'SCAM', 'HARASSMENT', 'UNKNOWN'];
     const category: Category = allowedCategories.includes(rawChoice as Category)
       ? (rawChoice as Category)

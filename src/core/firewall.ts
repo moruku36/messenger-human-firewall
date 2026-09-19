@@ -63,6 +63,15 @@ export class HumanFirewallCore {
         renderComparisonSummary(comparison);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
+        jevDecision = {
+          action: 'HUMAN_REQUIRED',
+          category: 'UNKNOWN',
+          risk: 80,
+          reasonCode: 'JEV_API_ERROR',
+          reason: `Jev shadow evaluation unexpected failure: ${msg}`,
+          success: false,
+        };
+        comparison = compareDecisions(threadHash, classification, jevDecision);
         logEvent({
           event: 'JEV_ERROR',
           threadHash,
@@ -79,6 +88,8 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'IGNORED',
+        jevDecision,
+        comparison,
       };
     }
 
@@ -94,6 +105,8 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'HUMAN_REQUIRED',
+        jevDecision,
+        comparison,
       };
     }
 
@@ -101,6 +114,8 @@ export class HumanFirewallCore {
       return {
         classification,
         finalDecision: 'BLOCK_RECOMMENDED',
+        jevDecision,
+        comparison,
       };
     }
 
@@ -146,6 +161,8 @@ export class HumanFirewallCore {
         guardResult,
         finalDecision: 'REPLY_BLOCKED',
         timeWasterState,
+        jevDecision,
+        comparison,
       };
     }
 
@@ -155,6 +172,8 @@ export class HumanFirewallCore {
       guardResult,
       finalDecision: 'SEND_ALLOWED',
       timeWasterState,
+      jevDecision,
+      comparison,
     };
   }
 }
