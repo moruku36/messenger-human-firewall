@@ -342,13 +342,12 @@ export class JevClassifier {
 
     if (
       typeof overallRisk !== 'number' ||
-      Number.isNaN(overallRisk) ||
-      !Number.isInteger(overallRisk) ||
+      !Number.isFinite(overallRisk) ||
       overallRisk < 0 ||
       overallRisk > 4
     ) {
       throw new Error(
-        `Malformed response: overallRisk score must be an integer between 0 and 4, got ${String(overallRisk)}`,
+        `Malformed response: overallRisk score must be a number between 0 and 4, got ${String(overallRisk)}`,
       );
     }
 

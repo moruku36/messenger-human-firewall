@@ -102,6 +102,7 @@ export const SafeLogDetailsSchema = z
     jevReasonCode: z.string().optional(),
     triggeredSignals: z.string().optional(),
     primarySignal: z.string().optional(),
+    classifierSource: z.string().optional(),
   })
   .strict();
 export type SafeLogDetails = z.infer<typeof SafeLogDetailsSchema>;
@@ -157,7 +158,7 @@ export interface JevSignals {
   threatOrUrgency: number; // 0.0 - 1.0 probability
   promptInjection: number; // 0.0 - 1.0 probability
   suspiciousExternalLink: number; // 0.0 - 1.0 probability
-  overallRisk: number; // 0 to 4 (scale index)
+  overallRisk: number; // 0.0 - 4.0 (continuous expected score)
   overallRiskScoreValue?: number; // expectation value
 }
 
