@@ -2,7 +2,7 @@
 
 個人Facebook Messenger向けのローカル常駐型 **「Messenger Human Firewall」**。
 
-Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、AIとローカルの決定論的ルールを組み合わせて、安全にトリアージ・応答・遮断するセキュリティ＆自動化基盤です。
+Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、AIとローカルの決定論的ルールを組み合わせて、安全にトリアージ・応答し、危険なメッセージは人間の確認へ回す（`BLOCK_RECOMMENDED` / `HUMAN_REQUIRED`）セキュリティ＆自動化基盤です。なお `BLOCK_RECOMMENDED` は推奨判定を記録するだけで、Messenger 上で実際にブロックする処理は行いません。
 
 現在の本番構成では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。**Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
 
@@ -71,7 +71,7 @@ flowchart TD
 
     subgraph Safety["5. Local Safety & Reply Guard"]
         Guard{"Reply Guard<br/>PII / 金銭・合意 / URL"}
-        Blocked["REPLY_BLOCKED / HUMAN_REQUIRED"]
+        Blocked["REPLY_BLOCKED<br/>(送信中止)"]
     end
 
     subgraph SendGate["6. Controlled Send Gate"]
@@ -123,7 +123,7 @@ flowchart TD
 | **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | Curious ➜ Deep Probing ➜ Hesitant Closing の状態遷移 |
 | **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧・手動ポーズ |
 | **Phase 8** | **Jev Production Triage** | **完了 (Completed)** | Jevを本番トリアージへ昇格、TypeScript deterministic policy、Geminiを返信生成専用化、Fail-Closed / Shadow / Legacy互換 |
-| **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止、ログサニタイズ、GitHub Actions CI再現性 |
+| **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止（Active Mode。Legacy/Shadow では `TIME_WASTER` 時に分類＋返信生成で Gemini を2回呼びます）、ログサニタイズ、GitHub Actions CI再現性 |
 
 ---
 
@@ -132,7 +132,7 @@ flowchart TD
 詳細なシステムトポロジおよびコンポーネント構成は [ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照してください。
  
 ### データ送信とプライバシーに関する重要事項 (Data Privacy Policy)
-1. **外部送信対象**: 受信メッセージ本文と最小限の会話要約はトリアージのため TypeSafe Jev へ送信されます。JevのActionが `POLITE_REPLY` / `TIME_WASTER` の場合のみ、返信生成のため同等の最小コンテキストを Google Gemini へ送信します。
+1. **外部送信対象**: 受信メッセージ本文と会話要約フィールドはトリアージのため TypeSafe Jev へ送信されます（現状、会話要約は呼び出し側から渡されないため常に「なし」です）。JevのActionが `POLITE_REPLY` / `TIME_WASTER` の場合のみ、返信生成のため同等の最小コンテキストを Google Gemini へ送信します。Shadow / Legacy モードでは Gemini もトリアージのために本文を受け取ります。
 2. **所有者情報の保護 (Zero-Owner-Context)**: ローカルの秘密鍵、セッションCookie、環境変数、および所有者自身の個人プロファイル情報（本名、住所、電話番号等）はプロンプトに一切追加・送信されません。
    > [!NOTE]
    > 受信メッセージ本文自体に送信者自身の個人情報（電話番号、氏名等）が含まれる場合、それらはトリアージ判定のために Jev / Gemini へ送信されます。
@@ -150,7 +150,7 @@ flowchart TD
 - **特徴**: 本人の意見や個人情報は絶対に語らず、用件やきっかけを丁寧に尋ねる。
 
 ### 2. AI Time Waster
-- **対象**: 詐欺、怪しい投資・暗号資産、副業勧誘、スパム、営業
+- **対象**: 詐欺、怪しい投資・暗号資産、副業勧誘、営業、および不審な外部リンクを含むメッセージ（無差別のスパム広告は `IGNORE` として返信しません）
 - **方針**: 相手の要求に応じず、個人情報を渡さず、愛想よく質問を返して時間を浪費させる。
 - **特徴**: 
   - 相槌 ➜ 曖昧な質問 ➜ 説明を求める ➜ さらなる詳細を聞く
@@ -169,9 +169,10 @@ flowchart TD
 4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
 5. **多層レートリミット & コスト防護**:
    - 誤スレッド送信の二重検証（クリック後にアクティブスレッドを再検証）
-   - 1スレッド最大3返信制限（初期制限）
-   - 24時間ローリング送信上限（最大20返信/スレッド）
-   - Jev / Gemini 共通の日次AIリクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回）
+   - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しません）
+   - 1スレッド累計最大3返信制限（`CONTROLLED_MAX_REPLIES`、最大20まで設定可。到達でスレッド自動 pause）
+   - 24時間ローリング送信上限（`MAX_REPLIES_PER_THREAD_PER_DAY`、デフォルト20返信/スレッド。`CONTROLLED_MAX_REPLIES` を引き上げない限り累計上限が先に効きます）
+   - Jev / Gemini 共通の日次AIリクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回。Shadow Mode では Gemini と Jev の両方が消費します）
    - 15秒送信インターバル待機
    - 緊急停止キルスイッチ
 6. **ログ・DB ハッシュ化**: メッセージ本文をDBに平文保存せず、ログにもサニタイズされた定型コード（`reasonCode`）とハッシュのみ記録。
@@ -200,12 +201,17 @@ cp .env.example .env
 ```
 
 > [!NOTE]
-> `@typesafe-ai/sdk` はCI再現性のため `typesafe-ai-sdk-0.6.0.tgz` をリポジトリに同梱し、依存関係を固定しています。通常は上記の `npm install` / CIの `npm ci` だけで追加作業は不要です。
+> `@typesafe-ai/sdk` はレジストリからは取得できないため、`typesafe-ai-sdk-0.6.0.tgz` をリポジトリに同梱し、`package.json` / `package-lock.json` の両方で `file:typesafe-ai-sdk-0.6.0.tgz` として固定しています。通常は上記の `npm install` / CIの `npm ci` だけで追加作業は不要です。
 
 `.env` に必要な項目を設定します：
 - `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
 - `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
+- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` での実送信を許可する単一スレッドのID（スレッドのDOM `id` または `aria-label` と完全一致）。未設定の場合、実送信は一切行われません。
+- `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
+
+> [!NOTE]
+> `.env.example` は Active Jev Mode（`JEV_ENABLED=true`, `JEV_SHADOW_MODE=false`）です。`.env` を作成しない場合、コード上の既定値は Legacy 相当（`JEV_ENABLED=false`, `JEV_SHADOW_MODE=true`）になります。
 
 ---
 
@@ -253,7 +259,7 @@ Deterministic TypeScript Policy (jev-policy.ts)
    - 返信文章の自由生成は行わず、セマンティックシグナルの抽出に特化。
    - **Active Jev Mode（`JEV_ENABLED=true, JEV_SHADOW_MODE=false`）では、Jevがトリアージの本番 Source of Truth となります。**
 2. **Deterministic TypeScript Policy (`src/core/jev-policy.ts`)**:
-   - Jev が出力した型付きシグナル（脅威度、認証搾取、金銭要求、インジェクション、不審リンク、確信度等）を純粋関数で安全ルールに照合し、決定論的にアクションをマッピング。
+   - Jev が出力した型付きシグナル（脅威度、認証搾取、金銭要求、インジェクション、不審リンク、カテゴリ確信度）を純粋関数で安全ルールに照合し、決定論的にアクションをマッピング。各リスクシグナルは `JEV_HIGH_RISK_THRESHOLD`（デフォルト0.85）以上で個別ルールが発動し、閾値未満はカテゴリ判定に委ねられます。連続スコア `overallRisk` は表示・ログ用の `risk` 値の算出にのみ使われ、Action の決定には影響しません（`NORMAL` カテゴリでは `risk` は最大20に丸められます）。
    - `IGNORE`, `HUMAN_REQUIRED`, `BLOCK_RECOMMENDED` に分岐した場合、**Gemini API 呼び出し回数は完全に 0 回**となります（不要な LLM 呼び出し・コスト・API 枯渇を防止）。
 3. **Google Gemini (Reply Generation ONLY)**:
    - 返信が必要な `POLITE_REPLY` / `TIME_WASTER` の場合のみ、安全な返信文生成器として呼び出されます。トリアージ分類には一切呼び出されません。
@@ -262,6 +268,9 @@ Deterministic TypeScript Policy (jev-policy.ts)
    - 生成された返信文は送信直前にローカルの厳格な正規表現・ルールで二重検査され、危険パターンが検知された場合は即時遮断（`REPLY_BLOCKED`）されます。
 
 ### Phase 2 合成ベンチマークの観測結果 (Local Synthetic Benchmark Notes)
+> [!NOTE]
+> 以下の数値は開発者のローカル環境での実行結果です。評価データセットおよび実行スクリプトはこのリポジトリに含まれていないため、リポジトリ単体では再現できません。
+
 Phase 2 において、100 件のセキュリティトリアージ検証ケースを用いたローカル合成ベンチマーク（local synthetic benchmark）による Jev API 評価を実施しました：
 - **Jev API 接続安定性**: 100/100 (100% 成功、スキーマエラー・タイムアウト・HTTP エラー 0 件)
 - **カテゴリ分類精度**: 94.0%
@@ -274,7 +283,7 @@ Phase 2 において、100 件のセキュリティトリアージ検証ケー�
 > **注意事項**: 上記の数値は Phase 2 の合成評価セット（100件）における実験的観測結果であり、未知のあらゆる実世界メッセージに対する安全性を将来にわたって保証するものではありません。また、評価時の Gemini API (Free Tier) はクォータ枯渇（HTTP 429）により Fail-Closed が作動したため、Gemini との対照比較はオフラインテストおよび個別ケースでの定性評価にとどまっています。
 
 ### 動作モードの切り替え
-- **Production Active Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=false`)**: 推奨。Jev が本番トリアージを担当し、Gemini は返信生成のみ担当。
+- **Production Active Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=false`)**: 推奨（`.env.example` の既定）。Jev が本番トリアージを担当し、Gemini は返信生成のみ担当。
 - **Shadow Telemetry Mode (`JEV_ENABLED=true, JEV_SHADOW_MODE=true`)**: Gemini がトリアージを行い、Jev がバックグラウンドで並行観測ログを記録。
 - **Legacy Mode (`JEV_ENABLED=false`)**: Gemini のみがトリアージと返信生成を担当。
 
@@ -319,7 +328,7 @@ npm run status
 
 ```bash
 npm run dashboard
-# ブラウザで http://localhost:3000 にアクセス
+# ブラウザで http://localhost:3000 にアクセス（ポートは `.env` の `PORT` で変更可能）
 ```
 
 ### 5. テストの実行
@@ -351,8 +360,9 @@ npm run lint
 - `HUMAN_REQUIRED`
 - `LOGIN_REQUIRED`
 - `ERROR`
+- `JEV_SHADOW_EVALUATED` / `JEV_ERROR`（Shadow Mode の比較テレメトリ）
 
-ログ出力例：
+ログ出力例（`reasonCode` は Active Jev Mode では `JEV_SCAM_HIGH_CONFIDENCE` などの `JEV_*` コード、Legacy/Shadow では `SCAM_CLASSIFIED` 形式になります）：
 ```json
 {"timestamp":"2026-09-17T02:50:00.000Z","event":"CLASSIFIED","threadHash":"sha256:abc...","category":"SCAM","action":"TIME_WASTER","risk":85,"reasonCode":"SCAM_CLASSIFIED"}
 ```
@@ -362,6 +372,9 @@ npm run lint
 ## 既知の制限事項 (Known Limitations)
 
 - Facebook MessengerのDOM構造の変更により、定期的なセレクタのメンテナンスが必要になる場合があります。
+- スレッド識別子はDOMの `id` → `aria-label`（相手名を含み得る）→ リスト内インデックスの順で決まり、ソルト無しのSHA-256でハッシュ化されます。同名の相手との衝突や、名前の辞書攻撃によるハッシュ逆引きの可能性があります。
+- Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信は Reply Guard と送信許可リストを通ります。
+- 送信処理が例外で失敗した場合、そのメッセージは処理済みとして記録されず、次のスキャンで再処理されます（日次LLM上限で保護されます）。
 - CAPTCHAや多要素認証（MFA）を自動で迂回することはポリシー上サポートしません。初回ログインは手動ブラウザで行います。
 - 本ツールは受信メッセージに対する防御目的であり、能動的な新規メッセージ送信機能は持っていません。
 
@@ -371,7 +384,7 @@ npm run lint
 
 本プロジェクトでは、安全性およびプライバシー保護の観点から以下の機能を明示的にスコープ外（Non-goals）としています：
 
-- **友人・既存連絡先への自動返信**: 通常受信トレイの既知のスレッドには一切干渉しません（メッセージリクエストのみを対象）。
+- **友人・既存連絡先への自動返信**: 監視対象はメッセージリクエストであり、実送信は `ALLOWED_TEST_THREAD_ID` に一致する単一スレッドに限定されます。通常受信トレイの既知のスレッドへの誤送信を防ぐ最終防壁はこの許可リストです（スレッド項目セレクタ自体は要求ビューかどうかを検証しません）。
 - **CAPTCHA・MFA・ボット検知の回避**: Metaのセキュリティ機構を迂回する機能は実装しません。ログインや二要素認証はユーザー本人が手動ブラウザで行います。
 - **能動的な新規DM送信・営業自動化**: 相手から受信したメッセージへの防壁・応答に限定し、自分から新規スレッドを開始する営業・送信機能は提供しません。
 - **本人になりすました合意・意思決定**: 所有者の意見代弁、契約締結、面会受諾、金銭授受の約束は行いません。
