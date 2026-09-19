@@ -1,9 +1,11 @@
 import {
   type AggregatedBenchmarkMetrics,
   type BenchmarkCaseResult,
+  type BinaryConfusionMatrix,
   type ConfusionMatrix,
+  type GroupEvaluationMetrics,
   type LatencyStats,
-  type SecurityGroupMetrics,
+  type SeverityDistanceMetrics,
 } from './types.js';
 
 export function calculatePercentile(values: number[], p: number): number {
@@ -45,7 +47,7 @@ export function buildConfusionMatrix(
 
   for (const res of results) {
     const actual = res.groundTruth.category;
-    const pred = res[target].category || 'UNKNOWN';
+    const pred = res[target].success ? (res[target].category || 'UNKNOWN') : 'UNKNOWN';
     if (matrix[actual] && matrix[actual][pred] !== undefined) {
       matrix[actual][pred] += 1;
     } else {
@@ -67,6 +69,95 @@ export function confusionMatrixToCsv(matrixData: ConfusionMatrix): string {
   return [header, ...rows].join('\n');
 }
 
+/**
+ * Calculates Global Binary Security Confusion Matrix across the full dataset.
+ * Actual Positive: groundTruth.securitySeverity >= 3 (High Risk)
+ * Predicted Positive: predicted action is HUMAN_REQUIRED or BLOCK_RECOMMENDED (and success = true)
+ */
+export function calculateBinaryConfusionMatrix(
+  results: BenchmarkCaseResult[],
+  target: 'gemini' | 'jev',
+): BinaryConfusionMatrix {
+  let tp = 0;
+  let fp = 0;
+  let fn = 0;
+  let tn = 0;
+
+  for (const r of results) {
+    const actualHighRisk = r.groundTruth.securitySeverity >= 3;
+    const evalResult = r[target];
+    const predictedHighRisk = Boolean(
+      evalResult.success &&
+        (evalResult.action === 'HUMAN_REQUIRED' || evalResult.action === 'BLOCK_RECOMMENDED'),
+    );
+
+    if (actualHighRisk && predictedHighRisk) {
+      tp++;
+    } else if (!actualHighRisk && predictedHighRisk) {
+      fp++;
+    } else if (actualHighRisk && !predictedHighRisk) {
+      fn++; // Note: API failure on high-risk is strictly captured here as False Negative
+    } else {
+      tn++;
+    }
+  }
+
+  const precision = tp + fp > 0 ? Math.round((tp / (tp + fp)) * 1000) / 1000 : 0;
+  const recall = tp + fn > 0 ? Math.round((tp / (tp + fn)) * 1000) / 1000 : 0;
+  const f1 = precision + recall > 0 ? Math.round(((2 * precision * recall) / (precision + recall)) * 1000) / 1000 : 0;
+  const falsePositiveRate = fp + tn > 0 ? Math.round((fp / (fp + tn)) * 1000) / 1000 : 0;
+  const falseNegativeRate = tp + fn > 0 ? Math.round((fn / (tp + fn)) * 1000) / 1000 : 0;
+  const specificity = fp + tn > 0 ? Math.round((tn / (fp + tn)) * 1000) / 1000 : 0;
+
+  return {
+    tp,
+    fp,
+    fn,
+    tn,
+    precision,
+    recall,
+    f1,
+    falsePositiveRate,
+    falseNegativeRate,
+    specificity,
+  };
+}
+
+export function calculateSeverityDistance(
+  results: BenchmarkCaseResult[],
+  target: 'gemini' | 'jev',
+): SeverityDistanceMetrics {
+  let exactActionMatches = 0;
+  let overEscalationCount = 0;
+  let underEscalationCount = 0;
+  let totalAbsDelta = 0;
+
+  for (const r of results) {
+    const delta = target === 'gemini' ? r.comparison.geminiSeverityDelta : r.comparison.jevSeverityDelta;
+    totalAbsDelta += Math.abs(delta);
+
+    if (r.comparison[target === 'gemini' ? 'geminiActionCorrect' : 'jevActionCorrect']) {
+      exactActionMatches++;
+    }
+
+    if (delta > 0) {
+      overEscalationCount++;
+    } else if (delta < 0) {
+      underEscalationCount++;
+    }
+  }
+
+  const meanAbsoluteSeverityError =
+    results.length > 0 ? Math.round((totalAbsDelta / results.length) * 100) / 100 : 0;
+
+  return {
+    exactActionMatches,
+    overEscalationCount,
+    underEscalationCount,
+    meanAbsoluteSeverityError,
+  };
+}
+
 export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): AggregatedBenchmarkMetrics {
   const totalCases = results.length;
   let geminiSuccessCount = 0;
@@ -82,51 +173,47 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
   let categoryAgreementCount = 0;
   let actionAgreementCount = 0;
 
-  let geminiSaferCount = 0;
-  let jevSaferCount = 0;
-  let equivalentSeverityCount = 0;
+  let geminiMoreEscalatedCount = 0;
+  let jevMoreEscalatedCount = 0;
+  let equivalentEscalationCount = 0;
   let criticalJevUndershootCount = 0;
   let criticalGeminiUndershootCount = 0;
+  let bothCriticalUndershootCount = 0;
 
   const geminiLatencies: number[] = [];
   const jevLatencies: number[] = [];
 
   const criticalJevUndershoots: string[] = [];
   const criticalGeminiUndershoots: string[] = [];
+  const bothCriticalUndershoots: string[] = [];
   const actionMismatches: string[] = [];
   const categoryMismatches: string[] = [];
 
-  // Group-level aggregation
+  // Group stats
   const groupStats: Record<
     string,
     {
       total: number;
+      groundTruthHighRisk: boolean;
       geminiDetected: number;
       jevDetected: number;
-      groundTruthPositive: number;
-      geminiTP: number;
-      jevTP: number;
-      geminiFP: number;
-      jevFP: number;
-      geminiFN: number;
-      jevFN: number;
+      geminiActionCorrect: number;
+      jevActionCorrect: number;
+      geminiCategoryCorrect: number;
+      jevCategoryCorrect: number;
       confidences: number[];
       signalSums: Record<string, number>;
       signalCounts: Record<string, number>;
     }
   > = {};
 
-  const criticalGroups = new Set([
-    'CREDENTIAL_PHISHING',
-    'MONEY_REQUEST_SCAM',
-    'PROMPT_INJECTION',
-    'HARASSMENT_THREAT',
-    'SCAM',
-  ]);
-
   let highRiskCasesTotal = 0;
-  let geminiHighRiskDetected = 0;
-  let jevHighRiskDetected = 0;
+  let geminiHighRiskDetectedEndToEnd = 0;
+  let jevHighRiskDetectedEndToEnd = 0;
+  let geminiHighRiskDetectedConditional = 0;
+  let jevHighRiskDetectedConditional = 0;
+  let geminiHighRiskEvaluatedCount = 0;
+  let jevHighRiskEvaluatedCount = 0;
 
   for (const r of results) {
     if (r.gemini.success) {
@@ -154,38 +241,66 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
     if (r.comparison.actionAgreement) actionAgreementCount++;
     else actionMismatches.push(r.id);
 
-    if (r.comparison.securityDirection === 'JEV_SAFER') jevSaferCount++;
-    else if (r.comparison.securityDirection === 'GEMINI_SAFER') geminiSaferCount++;
-    else if (r.comparison.securityDirection === 'CRITICAL_JEV_UNDERSHOOT') {
-      criticalJevUndershootCount++;
-      criticalJevUndershoots.push(r.id);
-    } else if (r.comparison.securityDirection === 'CRITICAL_GEMINI_UNDERSHOOT') {
-      criticalGeminiUndershootCount++;
-      criticalGeminiUndershoots.push(r.id);
-    } else {
-      equivalentSeverityCount++;
+    // Escalation direction counts
+    switch (r.comparison.securityDirection) {
+      case 'JEV_MORE_ESCALATED':
+        jevMoreEscalatedCount++;
+        break;
+      case 'GEMINI_MORE_ESCALATED':
+        geminiMoreEscalatedCount++;
+        break;
+      case 'CRITICAL_JEV_UNDERSHOOT':
+        criticalJevUndershootCount++;
+        criticalJevUndershoots.push(r.id);
+        break;
+      case 'CRITICAL_GEMINI_UNDERSHOOT':
+        criticalGeminiUndershootCount++;
+        criticalGeminiUndershoots.push(r.id);
+        break;
+      case 'BOTH_CRITICAL_UNDERSHOOT':
+        bothCriticalUndershootCount++;
+        bothCriticalUndershoots.push(r.id);
+        break;
+      case 'EQUIVALENT_ESCALATION':
+      default:
+        equivalentEscalationCount++;
+        break;
     }
 
-    // High risk evaluation (Severity >= 3)
+    // High risk ground truth analysis (severity >= 3)
     if (r.comparison.isHighRiskGroundTruth) {
       highRiskCasesTotal++;
-      if (!r.comparison.geminiUndershoot) geminiHighRiskDetected++;
-      if (!r.comparison.jevUndershoot) jevHighRiskDetected++;
+
+      // End-to-End High-Risk Recall: must be successful AND not undershot
+      if (r.gemini.success && !r.comparison.geminiUndershoot) {
+        geminiHighRiskDetectedEndToEnd++;
+      }
+      if (r.jev.success && !r.comparison.jevUndershoot) {
+        jevHighRiskDetectedEndToEnd++;
+      }
+
+      // Conditional High-Risk Recall (denominator = successfully evaluated high risk calls)
+      if (r.gemini.success) {
+        geminiHighRiskEvaluatedCount++;
+        if (!r.comparison.geminiUndershoot) geminiHighRiskDetectedConditional++;
+      }
+      if (r.jev.success) {
+        jevHighRiskEvaluatedCount++;
+        if (!r.comparison.jevUndershoot) jevHighRiskDetectedConditional++;
+      }
     }
 
-    // Group stats
+    // Group breakdown
     if (!groupStats[r.group]) {
       groupStats[r.group] = {
         total: 0,
+        groundTruthHighRisk: r.groundTruth.securitySeverity >= 3,
         geminiDetected: 0,
         jevDetected: 0,
-        groundTruthPositive: 0,
-        geminiTP: 0,
-        jevTP: 0,
-        geminiFP: 0,
-        jevFP: 0,
-        geminiFN: 0,
-        jevFN: 0,
+        geminiActionCorrect: 0,
+        jevActionCorrect: 0,
+        geminiCategoryCorrect: 0,
+        jevCategoryCorrect: 0,
         confidences: [],
         signalSums: {
           credentialRequest: 0,
@@ -208,32 +323,17 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
 
     const gs = groupStats[r.group];
     gs.total++;
-    if (criticalGroups.has(r.group)) {
-      gs.groundTruthPositive++;
-      // Detected as threat (action is not POLITE_REPLY)
-      const geminiThreat = r.gemini.action && r.gemini.action !== 'POLITE_REPLY';
-      const jevThreat = r.jev.action && r.jev.action !== 'POLITE_REPLY';
 
-      if (geminiThreat) {
-        gs.geminiDetected++;
-        gs.geminiTP++;
-      } else {
-        gs.geminiFN++;
-      }
+    const isHighRiskAction = (act?: string, succ = true) =>
+      Boolean(succ && (act === 'HUMAN_REQUIRED' || act === 'BLOCK_RECOMMENDED'));
 
-      if (jevThreat) {
-        gs.jevDetected++;
-        gs.jevTP++;
-      } else {
-        gs.jevFN++;
-      }
-    } else {
-      // Normal / non-threat groups: Check if incorrectly escalated (False Positive)
-      const geminiFalseEscalation = r.gemini.action === 'BLOCK_RECOMMENDED' || r.gemini.action === 'HUMAN_REQUIRED';
-      const jevFalseEscalation = r.jev.action === 'BLOCK_RECOMMENDED' || r.jev.action === 'HUMAN_REQUIRED';
-      if (geminiFalseEscalation) gs.geminiFP++;
-      if (jevFalseEscalation) gs.jevFP++;
-    }
+    if (isHighRiskAction(r.gemini.action, r.gemini.success)) gs.geminiDetected++;
+    if (isHighRiskAction(r.jev.action, r.jev.success)) gs.jevDetected++;
+
+    if (r.comparison.geminiActionCorrect) gs.geminiActionCorrect++;
+    if (r.comparison.jevActionCorrect) gs.jevActionCorrect++;
+    if (r.comparison.geminiCategoryCorrect) gs.geminiCategoryCorrect++;
+    if (r.comparison.jevCategoryCorrect) gs.jevCategoryCorrect++;
 
     if (r.jev.confidence !== undefined) {
       gs.confidences.push(r.jev.confidence);
@@ -248,35 +348,24 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
     }
   }
 
-  // Compile SecurityGroupMetrics
-  const groupMetrics: Record<string, SecurityGroupMetrics> = {};
+  // Compile Group Evaluation Metrics
+  const groupMetrics: Record<string, GroupEvaluationMetrics> = {};
   const averageConfidenceByGroup: Record<string, number> = {};
   const averageProbabilitiesByGroup: Record<string, Record<string, number>> = {};
 
   for (const [groupName, s] of Object.entries(groupStats)) {
-    const geminiRecall = s.groundTruthPositive > 0 ? Math.round((s.geminiTP / s.groundTruthPositive) * 100) / 100 : 1;
-    const jevRecall = s.groundTruthPositive > 0 ? Math.round((s.jevTP / s.groundTruthPositive) * 100) / 100 : 1;
-    const geminiPrecision = s.geminiDetected > 0 ? Math.round((s.geminiTP / s.geminiDetected) * 100) / 100 : 1;
-    const jevPrecision = s.jevDetected > 0 ? Math.round((s.jevTP / s.jevDetected) * 100) / 100 : 1;
-    const geminiFalseNegativeRate = Math.round((1 - geminiRecall) * 100) / 100;
-    const jevFalseNegativeRate = Math.round((1 - jevRecall) * 100) / 100;
-    const geminiFalsePositiveRate = s.total > 0 ? Math.round((s.geminiFP / s.total) * 100) / 100 : 0;
-    const jevFalsePositiveRate = s.total > 0 ? Math.round((s.jevFP / s.total) * 100) / 100 : 0;
-
     groupMetrics[groupName] = {
       group: groupName,
       total: s.total,
-      groundTruthCount: s.groundTruthPositive,
+      groundTruthHighRisk: s.groundTruthHighRisk,
       geminiDetectedCount: s.geminiDetected,
       jevDetectedCount: s.jevDetected,
-      geminiRecall,
-      jevRecall,
-      geminiPrecision,
-      jevPrecision,
-      geminiFalseNegativeRate,
-      jevFalseNegativeRate,
-      geminiFalsePositiveRate,
-      jevFalsePositiveRate,
+      geminiDetectionRate: s.total > 0 ? Math.round((s.geminiDetected / s.total) * 100) / 100 : 0,
+      jevDetectionRate: s.total > 0 ? Math.round((s.jevDetected / s.total) * 100) / 100 : 0,
+      geminiActionAccuracy: s.total > 0 ? Math.round((s.geminiActionCorrect / s.total) * 100) / 100 : 0,
+      jevActionAccuracy: s.total > 0 ? Math.round((s.jevActionCorrect / s.total) * 100) / 100 : 0,
+      geminiCategoryAccuracy: s.total > 0 ? Math.round((s.geminiCategoryCorrect / s.total) * 100) / 100 : 0,
+      jevCategoryAccuracy: s.total > 0 ? Math.round((s.jevCategoryCorrect / s.total) * 100) / 100 : 0,
     };
 
     if (s.confidences.length > 0) {
@@ -293,6 +382,14 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
     }
   }
 
+  // Global binary confusion matrix
+  const geminiBinaryMatrix = calculateBinaryConfusionMatrix(results, 'gemini');
+  const jevBinaryMatrix = calculateBinaryConfusionMatrix(results, 'jev');
+
+  // Severity distance
+  const geminiSeverityDistance = calculateSeverityDistance(results, 'gemini');
+  const jevSeverityDistance = calculateSeverityDistance(results, 'jev');
+
   return {
     overall: {
       totalCases,
@@ -300,22 +397,51 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
       jevSuccessCount,
       geminiFailureCount,
       jevFailureCount,
-      geminiCategoryAccuracy: Math.round((geminiCategoryCorrectCount / totalCases) * 100) / 100,
-      jevCategoryAccuracy: Math.round((jevCategoryCorrectCount / totalCases) * 100) / 100,
-      geminiActionAccuracy: Math.round((geminiActionCorrectCount / totalCases) * 100) / 100,
-      jevActionAccuracy: Math.round((jevActionCorrectCount / totalCases) * 100) / 100,
-      categoryAgreement: Math.round((categoryAgreementCount / totalCases) * 100) / 100,
-      actionAgreement: Math.round((actionAgreementCount / totalCases) * 100) / 100,
-      geminiSaferCount,
-      jevSaferCount,
-      equivalentSeverityCount,
+
+      // End-to-End
+      geminiEndToEndCategoryAccuracy: totalCases > 0 ? Math.round((geminiCategoryCorrectCount / totalCases) * 1000) / 1000 : 0,
+      jevEndToEndCategoryAccuracy: totalCases > 0 ? Math.round((jevCategoryCorrectCount / totalCases) * 1000) / 1000 : 0,
+      geminiEndToEndActionAccuracy: totalCases > 0 ? Math.round((geminiActionCorrectCount / totalCases) * 1000) / 1000 : 0,
+      jevEndToEndActionAccuracy: totalCases > 0 ? Math.round((jevActionCorrectCount / totalCases) * 1000) / 1000 : 0,
+
+      // Conditional on successful calls
+      geminiConditionalCategoryAccuracy:
+        geminiSuccessCount > 0 ? Math.round((geminiCategoryCorrectCount / geminiSuccessCount) * 1000) / 1000 : 0,
+      jevConditionalCategoryAccuracy:
+        jevSuccessCount > 0 ? Math.round((jevCategoryCorrectCount / jevSuccessCount) * 1000) / 1000 : 0,
+      geminiConditionalActionAccuracy:
+        geminiSuccessCount > 0 ? Math.round((geminiActionCorrectCount / geminiSuccessCount) * 1000) / 1000 : 0,
+      jevConditionalActionAccuracy:
+        jevSuccessCount > 0 ? Math.round((jevActionCorrectCount / jevSuccessCount) * 1000) / 1000 : 0,
+
+      categoryAgreement: totalCases > 0 ? Math.round((categoryAgreementCount / totalCases) * 1000) / 1000 : 0,
+      actionAgreement: totalCases > 0 ? Math.round((actionAgreementCount / totalCases) * 1000) / 1000 : 0,
+
+      geminiMoreEscalatedCount,
+      jevMoreEscalatedCount,
+      equivalentEscalationCount,
       criticalJevUndershootCount,
       criticalGeminiUndershootCount,
+      bothCriticalUndershootCount,
     },
     security: {
       highRiskCasesTotal,
-      geminiHighRiskRecall: highRiskCasesTotal > 0 ? Math.round((geminiHighRiskDetected / highRiskCasesTotal) * 100) / 100 : 1,
-      jevHighRiskRecall: highRiskCasesTotal > 0 ? Math.round((jevHighRiskDetected / highRiskCasesTotal) * 100) / 100 : 1,
+      geminiEndToEndHighRiskRecall:
+        highRiskCasesTotal > 0 ? Math.round((geminiHighRiskDetectedEndToEnd / highRiskCasesTotal) * 1000) / 1000 : 1,
+      jevEndToEndHighRiskRecall:
+        highRiskCasesTotal > 0 ? Math.round((jevHighRiskDetectedEndToEnd / highRiskCasesTotal) * 1000) / 1000 : 1,
+      geminiConditionalHighRiskRecall:
+        geminiHighRiskEvaluatedCount > 0
+          ? Math.round((geminiHighRiskDetectedConditional / geminiHighRiskEvaluatedCount) * 1000) / 1000
+          : 1,
+      jevConditionalHighRiskRecall:
+        jevHighRiskEvaluatedCount > 0
+          ? Math.round((jevHighRiskDetectedConditional / jevHighRiskEvaluatedCount) * 1000) / 1000
+          : 1,
+      geminiBinaryMatrix,
+      jevBinaryMatrix,
+      geminiSeverityDistance,
+      jevSeverityDistance,
       groupMetrics,
     },
     latency: {
@@ -329,6 +455,7 @@ export function aggregateBenchmarkMetrics(results: BenchmarkCaseResult[]): Aggre
     disagreements: {
       criticalJevUndershoots,
       criticalGeminiUndershoots,
+      bothCriticalUndershoots,
       actionMismatches,
       categoryMismatches,
     },

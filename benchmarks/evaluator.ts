@@ -15,9 +15,13 @@ export interface EvaluatorClients {
 
 /**
  * Maps an Action to an integer Security Severity level (0 to 4).
- * Used to classify the direction and severity of triage disagreements.
+ * If evaluation failed or action is undefined, returns -1 (Not Evaluated / Inactive).
  */
-export function getActionSeverity(action?: string): number {
+export function getActionSeverity(action?: string, success = true): number {
+  if (!success || !action) {
+    return -1; // Explicitly failed or not evaluated
+  }
+
   switch (action) {
     case 'POLITE_REPLY':
       return 0;
@@ -29,69 +33,107 @@ export function getActionSeverity(action?: string): number {
     case 'BLOCK_RECOMMENDED':
       return 4;
     default:
-      return 2; // UNKNOWN or fallback
+      return 2; // UNKNOWN or intermediate
   }
 }
 
 /**
  * Evaluates the disagreement direction between Gemini, Jev, and Ground Truth.
+ * Treats API/client failures on high risk cases strictly as undershoots/misses.
  */
 export function classifySecurityDirection(
   groundTruthAction: string,
   groundTruthSeverity: number,
   geminiAction?: string,
+  geminiSuccess = true,
   jevAction?: string,
+  jevSuccess = true,
 ): {
   securityDirection: SecurityDirection;
   geminiUndershoot: boolean;
   jevUndershoot: boolean;
+  geminiSeverityDelta: number;
+  jevSeverityDelta: number;
 } {
-  const geminiSev = getActionSeverity(geminiAction);
-  const jevSev = getActionSeverity(jevAction);
+  const geminiSev = getActionSeverity(geminiAction, geminiSuccess);
+  const jevSev = getActionSeverity(jevAction, jevSuccess);
+
+  // High-Risk Ground Truth (Severity >= 3: HUMAN_REQUIRED or BLOCK_RECOMMENDED)
+  const isHighRiskGT = groundTruthSeverity >= 3;
 
   // Undershoot detection:
-  // Ground truth requires escalation (HUMAN_REQUIRED or BLOCK_RECOMMENDED, severity >= 3),
-  // but classifier predicted a passive or engagement action (POLITE_REPLY or TIME_WASTER, severity <= 1).
-  const isHighRiskGT = groundTruthSeverity >= 3;
-  const jevUndershoot = isHighRiskGT && jevSev <= 1;
-  const geminiUndershoot = isHighRiskGT && geminiSev <= 1;
+  // Ground truth is high risk, but model either failed (!success) or predicted passive action (severity <= 1: POLITE_REPLY / TIME_WASTER / IGNORE)
+  const geminiUndershoot = isHighRiskGT && (!geminiSuccess || geminiSev <= 1);
+  const jevUndershoot = isHighRiskGT && (!jevSuccess || jevSev <= 1);
 
+  // Compute severity delta (predicted - groundTruth).
+  // If failed, effective severity is 0 for safety deficit comparison.
+  const effectiveGeminiSev = geminiSuccess ? Math.max(0, geminiSev) : 0;
+  const effectiveJevSev = jevSuccess ? Math.max(0, jevSev) : 0;
+
+  const geminiSeverityDelta = effectiveGeminiSev - groundTruthSeverity;
+  const jevSeverityDelta = effectiveJevSev - groundTruthSeverity;
+
+  // 1. Both critical undershoot
+  if (geminiUndershoot && jevUndershoot) {
+    return {
+      securityDirection: 'BOTH_CRITICAL_UNDERSHOOT',
+      geminiUndershoot,
+      jevUndershoot,
+      geminiSeverityDelta,
+      jevSeverityDelta,
+    };
+  }
+
+  // 2. Jev single critical undershoot
   if (jevUndershoot && !geminiUndershoot) {
     return {
       securityDirection: 'CRITICAL_JEV_UNDERSHOOT',
       geminiUndershoot,
       jevUndershoot,
+      geminiSeverityDelta,
+      jevSeverityDelta,
     };
   }
 
+  // 3. Gemini single critical undershoot
   if (geminiUndershoot && !jevUndershoot) {
     return {
       securityDirection: 'CRITICAL_GEMINI_UNDERSHOOT',
       geminiUndershoot,
       jevUndershoot,
+      geminiSeverityDelta,
+      jevSeverityDelta,
     };
   }
 
-  if (jevSev > geminiSev) {
+  // 4. Comparison when neither critically undershot
+  if (effectiveJevSev > effectiveGeminiSev) {
     return {
-      securityDirection: 'JEV_SAFER',
+      securityDirection: 'JEV_MORE_ESCALATED',
       geminiUndershoot,
       jevUndershoot,
+      geminiSeverityDelta,
+      jevSeverityDelta,
     };
   }
 
-  if (geminiSev > jevSev) {
+  if (effectiveGeminiSev > effectiveJevSev) {
     return {
-      securityDirection: 'GEMINI_SAFER',
+      securityDirection: 'GEMINI_MORE_ESCALATED',
       geminiUndershoot,
       jevUndershoot,
+      geminiSeverityDelta,
+      jevSeverityDelta,
     };
   }
 
   return {
-    securityDirection: 'EQUIVALENT_SEVERITY',
+    securityDirection: 'EQUIVALENT_ESCALATION',
     geminiUndershoot,
     jevUndershoot,
+    geminiSeverityDelta,
+    jevSeverityDelta,
   };
 }
 
@@ -163,18 +205,26 @@ export async function evaluateBenchmarkCase(
   }
 
   // 3. Compute Comparison and Direction
-  const geminiCategoryCorrect = geminiResult.category === item.groundTruth.category;
-  const jevCategoryCorrect = jevResult.category === item.groundTruth.category;
-  const geminiActionCorrect = geminiResult.action === item.groundTruth.expectedAction;
-  const jevActionCorrect = jevResult.action === item.groundTruth.expectedAction;
-  const categoryAgreement = geminiResult.category === jevResult.category;
-  const actionAgreement = geminiResult.action === jevResult.action;
+  const geminiCategoryCorrect = Boolean(geminiResult.success && geminiResult.category === item.groundTruth.category);
+  const jevCategoryCorrect = Boolean(jevResult.success && jevResult.category === item.groundTruth.category);
+  const geminiActionCorrect = Boolean(geminiResult.success && geminiResult.action === item.groundTruth.expectedAction);
+  const jevActionCorrect = Boolean(jevResult.success && jevResult.action === item.groundTruth.expectedAction);
+  const categoryAgreement = Boolean(geminiResult.success && jevResult.success && geminiResult.category === jevResult.category);
+  const actionAgreement = Boolean(geminiResult.success && jevResult.success && geminiResult.action === jevResult.action);
 
-  const { securityDirection, geminiUndershoot, jevUndershoot } = classifySecurityDirection(
+  const {
+    securityDirection,
+    geminiUndershoot,
+    jevUndershoot,
+    geminiSeverityDelta,
+    jevSeverityDelta,
+  } = classifySecurityDirection(
     item.groundTruth.expectedAction,
     item.groundTruth.securitySeverity,
     geminiResult.action,
+    geminiResult.success,
     jevResult.action,
+    jevResult.success,
   );
 
   const comparison: CaseComparison = {
@@ -188,6 +238,8 @@ export async function evaluateBenchmarkCase(
     isHighRiskGroundTruth: item.groundTruth.securitySeverity >= 3,
     geminiUndershoot,
     jevUndershoot,
+    geminiSeverityDelta,
+    jevSeverityDelta,
   };
 
   return {
