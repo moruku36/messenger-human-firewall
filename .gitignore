@@ -37,6 +37,7 @@ Thumbs.db
 .idea/
 *.swp
 *.tgz
+!typesafe-ai-sdk-*.tgz
 
 # Benchmark run results & temporary artifacts (preserves baseline datasets)
 benchmarks/results/
