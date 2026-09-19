@@ -73,6 +73,15 @@
   - `MAX_LLM_REQUESTS_PER_DAY` による1日あたりのAPI総呼び出し回数のハードキャップ（デフォルト100回/日）。
   - 緊急停止機構（`npm run pause` / `.env` の `PAUSE_ALL=true` / `data/.killswitch`）。
 
+### 2.10 TypeSafe Jev Shadow Integration & Security Boundaries
+- **脅威**: Jev APIのダウン、不正な構造の返却、誤分類、または外部サービス連携による個人情報・クレデンシャル漏洩。
+- **対策 (多層防御)**:
+  - **Shadow Mode**: Jev判定は観察専用（Shadow Mode）であり、本番の返信判定および送信パイプラインのSource of Truthは既存のGeminiが維持。
+  - **Deterministic Policy Engine**: Jev自身に送信可否の最終判断や返信文章を生成させず、純粋なTypeScriptルールでアクションを導出。
+  - **Zero-Context Prompting**: Jevへ送信するデータは受信メッセージ本文と最小限の会話要約のみ。ブラウザセッション、Cookie、所有者の個人情報・秘密情報は一切送信しない。
+  - **Fail-Closed**: Jevタイムアウト、ネットワークエラー、スキーマ破損、低確信度時は即座に `HUMAN_REQUIRED` 相当へ倒し、安全基準の低下を構造的に防止。
+  - **No Plaintext Persistence**: テレメトリログやSQLiteに平文メッセージやAPIキーを保存せず、ハッシュと定型reasonCodeのみを記録。
+
 ---
 
 ## 3. Residual Risk (対策後に残る固有のリスク)
@@ -101,3 +110,5 @@
 - メッセージ本文そのものは永続DBや標準出力ログにプレーンテキストで残しません（Zero-Dump設計）。
 - ログにはイベント名、スレッドハッシュ（SHA-256）、分類カテゴリ、定型理由コード（`reasonCode`）などの非センシティブなメタデータのみを出力します。
 - 送信候補文や思考テキストのコンソール表示はデフォルトでマスクされ、明示的に `DEBUG=true` を指定した場合のみ閲覧可能です。
+- Jev Shadow Modeにおける比較テレメトリ（`JEV_SHADOW_EVALUATED`）でも同様に、平文メッセージ・生成返信・個人情報を一切永続化せず、一致度・レイテンシ・reasonCodeのみを記録します。
+

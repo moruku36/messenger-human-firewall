@@ -175,8 +175,30 @@ cp .env.example .env
 `.env` に必要な項目を設定します：
 - `GEMINI_API_KEY`: Google Gemini API Key
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
+- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（Jev Shadow Mode を有効化する場合のみ必要）
 
 ---
+
+## TypeSafe Jev / System One Shadow Triage (Experimental)
+
+本システムは、TypeSafe AI の System One モデル **Jev** を Shadow Mode として統合しています。
+
+### アーキテクチャと責務の分離
+- **Google Gemini (Production Decision & Reply Generator)**:
+  - 受信メッセージに対する最終アクション判定（Source of Truth）および返信文生成を担当。
+- **TypeSafe Jev (Shadow Mode / Semantic Triage)**:
+  - 高速な構造化シグナル判定（Choice / Noul / Score）に特化。返信文の自由生成は行いません。
+- **Deterministic Policy Engine (`src/core/jev-policy.ts`)**:
+  - Jevが算出した Typed Signals（脅威度、認証要求、金銭要求、インジェクション確率、カテゴリ等）を純粋な TypeScript ルールに入力し、決定論的にアクションをマッピング。
+- **Safe Comparison Telemetry (`src/core/comparator.ts`)**:
+  - メッセージ平文や機微情報を一切残さず、非機微なメトリクス、ハッシュ、reasonCode（`JEV_SCAM_HIGH_CONFIDENCE`, `JEV_CREDENTIAL_REQUEST` 等）のみで Gemini と Jev の判定一致度を並行観測。
+
+### 安全設計インバリアント
+- **Shadow Mode Default**: デフォルトで Jev 判定は観測専用（Shadow Mode）であり、Gemini の本番判定を書き換えません。
+- **Zero-Context Prompting**: Jev に渡されるのは受信メッセージ本文と最小限の会話要約のみ。Cookie、セッション、個人情報は一切送信されません。
+- **Fail-Closed**: Jev のタイムアウト、APIエラー、スキーマ破損、低確信度時は即座に `HUMAN_REQUIRED` 相当へ安全に倒置され、安全基準を迂回しません。
+- **Opt-in Key Requirement**: `TYPESAFE_API_KEY` は Jev を有効化する場合のみ必要です。APIキー未設定でもオフラインテストや通常動作に影響はありません。
+
 
 ## 使い方
 
