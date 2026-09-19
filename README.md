@@ -40,9 +40,6 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
   <img src="docs/assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
 </p>
 
-> [!NOTE]
-> 上の構成図は Jev 導入前（Gemini のみ）の旧構成です。現行のパイプラインは下のフローチャートを参照してください。
-
 ### フローチャート (Pipeline Flowchart)
 
 ```mermaid
@@ -378,7 +375,6 @@ npm run lint
 - スレッド識別子はDOMの `id` → `aria-label`（相手名を含み得る）→ リスト内インデックスの順で決まり、ソルト無しのSHA-256でハッシュ化されます。同名の相手との衝突や、名前の辞書攻撃によるハッシュ逆引きの可能性があります。
 - Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信は Reply Guard と送信許可リストを通ります。
 - 送信処理が例外で失敗した場合、そのメッセージは処理済みとして記録されず、次のスキャンで再処理されます（日次LLM上限で保護されます）。
-- 図 `docs/assets/architecture.png` は Jev 導入前の構成のままで、外部通信先を Gemini のみ・トリアージを Gemini として描いており、Reply Guard 遮断後も `HUMAN_REQUIRED` としています。現行構成は下のフローチャートおよび `docs/ARCHITECTURE.md` を正としてください（実装は Reply Guard 遮断時 `REPLY_BLOCKED`＝送信中止）。図は再生成が必要です。
 - CAPTCHAや多要素認証（MFA）を自動で迂回することはポリシー上サポートしません。初回ログインは手動ブラウザで行います。
 - 本ツールは受信メッセージに対する防御目的であり、能動的な新規メッセージ送信機能は持っていません。
 

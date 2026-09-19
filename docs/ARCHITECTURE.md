@@ -6,8 +6,6 @@
   <img src="assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
 </p>
 
-> **Note:** 上の画像は Jev 導入前（Gemini のみ）の旧構成図です。現行構成は下のテキスト図と §3 を正としてください。
-
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │ Local Host Machine (Trusted & Controlled Environment)                           │
