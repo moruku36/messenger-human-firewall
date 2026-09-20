@@ -1,7 +1,10 @@
 export interface ThreadMessage {
-  direction: 'incoming' | 'outgoing';
+  /** 'unknown' = could not be attributed to either side (e.g. centered notices). */
+  direction: 'incoming' | 'outgoing' | 'unknown';
   text: string;
   timestamp?: number;
+  /** Horizontal alignment of the bubble: -1 = flush left, 0 = centred, +1 = flush right. Diagnostics only. */
+  align?: number;
 }
 
 export interface ThreadEligibilityResult {
@@ -31,6 +34,13 @@ export function evaluateThreadEligibility(
     return {
       eligible: false,
       reason: 'SELF_REPLIED: Last message was sent by the owner/bot. Waiting for stranger.',
+    };
+  }
+
+  if (lastMessage.direction === 'unknown') {
+    return {
+      eligible: false,
+      reason: 'AMBIGUOUS_DIRECTION: Could not tell who sent the last message. Failing safe.',
     };
   }
 

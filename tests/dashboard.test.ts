@@ -135,4 +135,16 @@ describe('Phase 7: Local Dashboard Server (localhost)', () => {
     const data = await res.json();
     expect(data.error).toContain('Forbidden: Invalid Origin');
   });
+
+  it('rejects Origin that merely shares the allowed origin as a prefix', async () => {
+    const res = await fetch(`${baseUrl}/api/killswitch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: `${baseUrl}0`,
+      },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(res.status).toBe(403);
+  });
 });

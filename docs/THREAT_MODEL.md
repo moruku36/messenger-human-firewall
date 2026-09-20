@@ -36,7 +36,7 @@
 - **脅威**: 「買います」「参加します」「○日に会いましょう」等の勝手な約束・契約・金銭同意をLLMが捏造する。
 - **対策**:
   - 「同意・契約・購入・面会」のコミットメントフレーズを `Reply Guard` でブラックリスト検知。
-  - 検知時は自動送信を停止し、`HUMAN_REQUIRED` にエスカレーション。
+  - 検知時は送信を中止し、`REPLY_BLOCKED` として記録（`REPLY_BLOCKED` イベントを出力）。自動でのリトライ・再生成は行わず、`HUMAN_REQUIRED` フラグも立てないため、対応が必要な場合は所有者がダッシュボード／ログで確認します。
 
 ### 2.5 Browser Session & Credential Leakage
 - **脅威**: FacebookのログインCookie、セッショントークン、ブラウザプロファイルがGitコミットや外部APIログ経由で漏洩する。
@@ -48,7 +48,8 @@
 ### 2.6 Infinite Reply Loop & API Cost Explosion (無限ループ・API費用爆発)
 - **脅威**: 相手もBotだった場合や大量のリクエストメッセージが連続で届き、自動応答の応酬によってAPI費用が爆発したりアカウント凍結を招く。
 - **対策**:
-  - **Thread Rate Limit**: 1スレッドあたり24時間で最大20返信のローリング上限（初期テストモードでは最大3通制限）。
+  - **Thread Reply Cap**: 1スレッドあたりの累計返信数は `CONTROLLED_MAX_REPLIES`（デフォルト3、最大20）で制限され、到達するとスレッドは自動で `paused` になります。加えて `MAX_REPLIES_PER_THREAD_PER_DAY`（デフォルト20）による24時間ローリング上限がありますが、`CONTROLLED_MAX_REPLIES` を引き上げない限り実質的には累計上限が先に効きます。
+  - **Allowed Thread Only**: 実送信（`DRY_RUN=false`）は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみに限定されます（未設定の場合は一切送信しません）。
   - **Global LLM Daily Quota**: 1日あたりのLLM API総呼び出し回数ハードキャップ（`MAX_LLM_REQUESTS_PER_DAY`、デフォルト100回）。上限到達時は人間要対応へエスカレーションし、以後のLLM呼び出しを物理遮断。
   - **Interval**: 最小15秒以上の送信インターバルを強制。
   - 最大返信回数到達後は自動でスレッドを `paused` に遷移。
@@ -56,15 +57,15 @@
 ### 2.7 Accidental Friend Reply (既存友人への誤返信)
 - **脅威**: 既存の友人や仕事関係者の通常会話スレッドに誤ってTime Waster等の自動返信を送ってしまう。
 - **対策**:
-  - スコープを「Message Requests」タブおよび明示的にunknown判定された新規スレッドに厳格に限定。
-  - 通常受信トレイの既存スレッドは監視対象から除外。
-  - 先に相手からメッセージが来た場合のみトリガー（こちらから新規スレッドを開始することは構造上不可能）。
+  - 監視は「Message Requests」タブへ移動して行います（タブが見つからない場合は `/requests/` へ直接遷移）。ただしスレッド項目セレクタ自体は要求ビューかどうかを検証しないため、通常受信トレイのスレッドを完全に除外することはコード上保証していません。
+  - **最終防壁は送信許可リスト**: 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドに限られるため、友人スレッドへ誤送信される経路は構造的に閉じています（DRY_RUN では送信自体が行われません）。
+  - 最後のメッセージが相手発信の場合のみトリガー（こちらから新規スレッドを開始する機能はありません）。
 
 ### 2.8 Unexpected DOM Change & Wrong-Thread Send (DOM変更・別スレッド誤送信)
 - **脅威**: Facebook MessengerのUI更新や非同期ローディングにより、別スレッドにフォーカスが当たった状態で誤ってメッセージを送信してしまう。
 - **対策**:
-  - `MESSENGER_SELECTORS` による一元管理と、`role`, `aria-label` 等の安定したアクセシビリティセレクタのみを採用。
-  - 送信直前の二重検証（`selectAndVerifyActiveThread`）: 対象スレッドIDの完全一致検証に加え、クリック後にDOM全体のアクティブ要素（`.active` / `[aria-selected="true"]`）を再取得し、対象スレッドと完全一致することを確認した上でなければ送信を実行しない。
+  - `MESSENGER_SELECTORS` による一元管理と、`role`, `href`, `aria-current`, `contenteditable` 等の安定した属性のみを採用（実DOMにはクラス名の難読化があり `data-testid` も無いため）。
+  - 送信直前の二重検証（`selectAndVerifyActiveThread`）: 対象スレッドID（会話URLの `/t/<id>`）の完全一致検証に加え、クリック後に一覧内で `aria-current` を持つ会話が対象スレッドただ1つであることを再取得して確認した上でなければ送信を実行しない。
   - 要素が見つからない場合や曖昧な場合は即時安全停止（Fail-Safe）。
 
 ### 2.9 API Cost Explosion & Kill Switch
@@ -76,10 +77,11 @@
 ### 2.10 TypeSafe Jev Shadow Integration & Security Boundaries
 - **脅威**: Jev APIのダウン、不正な構造の返却、誤分類、または外部サービス連携による個人情報・クレデンシャル漏洩。
 - **対策 (多層防御)**:
-  - **Shadow Mode**: Jev判定は観察専用（Shadow Mode）であり、本番の返信判定および送信パイプラインのSource of Truthは既存のGeminiが維持。
+  - **動作モード**: `JEV_ENABLED=true` かつ `JEV_SHADOW_MODE=false`（Active Mode、`.env.example` の既定）ではJevが本番トリアージのSource of Truthです。`JEV_SHADOW_MODE=true` ではGeminiが本番判定を行いJevは観察のみ、`JEV_ENABLED=false` ではGeminiのみ（Legacy）です。コード上の既定値（`.env` 未設定時）は Legacy 相当（`JEV_ENABLED=false`）です。
   - **Deterministic Policy Engine**: Jev自身に送信可否の最終判断や返信文章を生成させず、純粋なTypeScriptルールでアクションを導出。
-  - **Zero-Context Prompting**: Jevへ送信するデータは受信メッセージ本文と最小限の会話要約のみ。ブラウザセッション、Cookie、所有者の個人情報・秘密情報は一切送信しない。
-  - **Fail-Closed**: Jevタイムアウト、ネットワークエラー、スキーマ破損、低確信度時は即座に `HUMAN_REQUIRED` 相当へ倒し、安全基準の低下を構造的に防止。
+  - **Zero-Context Prompting**: Jevへ送信するデータは受信メッセージ本文と会話要約フィールドのみ（現状、会話要約は呼び出し側から渡されないため常に「なし」）。ブラウザセッション、Cookie、所有者の個人情報・秘密情報は一切送信しない。
+  - **Fail-Closed**: Jevタイムアウト、ネットワークエラー、スキーマ破損、APIキー未設定、日次quota超過、低確信度時は `HUMAN_REQUIRED` へ倒し、Geminiへの分類フォールバックは行いません。
+  - **Threshold Limitation**: 各リスクシグナルは `JEV_HIGH_RISK_THRESHOLD`（デフォルト0.85）以上でのみ個別ルールが発動します。閾値未満のシグナルはカテゴリ判定に委ねられ、`overallRisk` スコアは表示用の `risk` 値の算出にのみ使われ、Action決定には影響しません（Residual Risk 参照）。
   - **No Plaintext Persistence**: テレメトリログやSQLiteに平文メッセージやAPIキーを保存せず、ハッシュと定型reasonCodeのみを記録。
 
 ---
@@ -100,8 +102,16 @@
    - ブラウザ自動化（Playwright）を介したアクセスであるため、アクセス頻度や操作パターンによってMetaの自動化検出システム（CAPTCHA要求、一時的なメッセージ送信規制、アカウント利用制限等）が発動するリスクがあります。
    - **受容と緩和**: 送信間隔（15秒以上待機）および1スレッド・1日あたりの返信数ハードリミットを設けていますが、運用時は `DRY_RUN=true` による挙動監視を推奨します。
 
-4. **アップストリーム LLM の可用性・レート制限**:
-   - Google Gemini API の一時的な障害、ネットワーク切断、または Quota（429 Too Many Requests）の枯渇により、トリアージが遅延・停止するリスクがあります。
+4. **閾値未満の高リスクシグナル**:
+   - 例えば `moneyRequest=0.80` でカテゴリが `SCAM` の場合は `BLOCK_RECOMMENDED` ではなく `TIME_WASTER` になり、Gemini が返信を生成します（送信前に Reply Guard と送信許可リストは適用されます）。また `NORMAL` カテゴリでは表示用 `risk` が最大20に丸められます。
+   - **受容と緩和**: 閾値は `JEV_HIGH_RISK_THRESHOLD` で調整可能です。返信内容は Reply Guard で検査され、所有者情報は LLM に渡されません。
+
+5. **スレッド識別子の安定性・匿名性**:
+   - スレッドIDは会話リンクのURL（`/t/<id>`）から取得し、相手名を含む `aria-label` は使いません。ソルト無しのSHA-256でハッシュ化して保存するため、IDが推測可能な場合に総当たりでハッシュを逆引きされる可能性は残ります。
+   - メッセージの送受信の向きは吹き出しの水平位置で推定するため、UI変更で誤判定し得ます。最後の行の向きが不明な場合は返信しない（Fail-Safe）設計です。
+
+6. **アップストリーム LLM の可用性・レート制限**:
+   - Google Gemini API（返信生成）および TypeSafe Jev API（トリアージ）の一時的な障害、ネットワーク切断、または Quota（429 Too Many Requests）の枯渇により、トリアージが遅延・停止するリスクがあります。
    - **受容と緩和**: LLM呼び出し失敗時は自動返信を行わず、すべて `HUMAN_REQUIRED`（人間へのエスカレーション）へ安全に倒します。
 
 ---

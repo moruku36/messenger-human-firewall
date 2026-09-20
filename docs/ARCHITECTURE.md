@@ -58,7 +58,7 @@
 
 ## 2. Component Pipeline
 
-1. **Browser Watcher (`src/browser/`)**:
+1. **Browser Watcher (`src/channels/messenger/watcher.ts`, `validator.ts`, `selectors.ts`)**:
    - Playwright によるローカル常駐監視。
    - `Message Requests` タブを走査し、未読メッセージおよびスレッドIDを抽出。
    - メッセージ本文の SHA-256 ハッシュをローカル SQLite (`src/core/storage.ts`) に照合して重複排除。
@@ -79,16 +79,17 @@
      - Jev のタイムアウト・API障害・パースエラー時も安全基準を下げず、安全側（`HUMAN_REQUIRED`）へ自動倒置（Fail-Closed）。Gemini 分類への安易なフォールバックは行いません。
 
 3. **Decision & State Machine (`src/core/firewall.ts`, `src/core/state-machine.ts`)**:
-   - ターン数に応じた対話状態の遷移（`curious` ➜ `deep_probing` ➜ `hesitant_closing`）。
-   - スレッド状態管理（`active`, `paused`, `blocked`）。
+   - 送信済み返信数に応じた対話状態の遷移（`CONFUSED_CURIOUS` ➜ `DEEP_PROBING` ➜ `HESITANT_CLOSING`）。
+   - スレッド状態管理（SQLite `threads` テーブル。`paused` / `humanRequired` の boolean フラグと、最終 Action を示す `mode`）。`BLOCK_RECOMMENDED` は推奨フラグのみで、Messenger 上での実ブロック処理は行いません。
 
 4. **Reply Guard (`src/core/reply-guard.ts`)**:
    - LLM出力に対するローカル正規表現・ルールベース検査（PII、金銭・契約・合意、URL）。
-   - 危険パターン検知時は即座に `REPLY_BLOCKED` とし、人間へエスカレーション。
+   - 危険パターン検知時は即座に `REPLY_BLOCKED` とし、送信を中止（自動リトライなし。`HUMAN_REQUIRED` フラグは立たない）。
 
-5. **Controlled Send Gate (`src/core/pipeline.ts`, `src/browser/send-reply.ts`)**:
-   - スレッドID完全一致およびクリック後の DOM `.active` 要素再検証。
-   - 1スレッド24時間最大20通、1日最大100回LLMリクエスト、15秒送信インターバル、緊急停止（Kill Switch）を強制。
+5. **Controlled Send Gate (`src/core/pipeline.ts`, `src/core/controlled-limiter.ts`, `src/channels/messenger/sender.ts`)**:
+   - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しない）。
+   - スレッドID（会話URLの `/t/<id>`）の完全一致、およびクリック後に対象リンクだけが `aria-current` を持つことの再検証。
+   - 1スレッド累計最大 `CONTROLLED_MAX_REPLIES`（デフォルト3）通、24時間ローリング最大 `MAX_REPLIES_PER_THREAD_PER_DAY`（デフォルト20）通、1日最大 `MAX_LLM_REQUESTS_PER_DAY`（デフォルト100）回のLLMリクエスト、15秒送信インターバル、緊急停止（Kill Switch）を強制。
 
 ---
 

@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1080" viewBox="0 0 1900 1080" font-family="'Yu Gothic UI','Meiryo','Noto Sans CJK JP','Hiragino Sans',sans-serif">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+<marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+<marker id="y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a16207"/></marker>
+</defs>
+<rect x="0" y="0" width="1900" height="1080" rx="0" fill="#ffffff" stroke="#ffffff" stroke-width="0"/>
+<text x="950.0" y="52" font-size="40" fill="#111827" font-weight="bold" text-anchor="middle">Messenger Human Firewall 構成図</text>
+<text x="950.0" y="84" font-size="17" fill="#4b5563" font-weight="normal" text-anchor="middle">メッセージリクエストをローカルで監視し、TypeSafe Jev がシグナルを抽出 → TypeScript 決定論的ポリシーが Action を決定 → Gemini は返信文の生成のみ</text>
+<rect x="20" y="100" width="1860" height="120" rx="16" fill="#eff6ff" stroke="#93c5fd" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="45" y="132" font-size="16" fill="#1d4ed8" font-weight="bold" text-anchor="start">Internet Boundary / 外部通信 (HTTPS)</text>
+<text x="45" y="156" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">送信するのは受信メッセージ本文と会話要約のみ</text>
+<text x="45" y="176" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">所有者の個人情報・Cookie・環境変数は送信しない</text>
+<rect x="760" y="108" width="380" height="98" rx="14" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="950" y="138" font-size="20" fill="#1d4ed8" font-weight="bold" text-anchor="middle">TypeSafe Jev / System One</text>
+<text x="950" y="162" font-size="14" fill="#374151" font-weight="normal" text-anchor="middle">Choice ・ Noul ・ Score の型付きシグナルを返却</text>
+<text x="950" y="184" font-size="14" fill="#374151" font-weight="normal" text-anchor="middle">返信文の生成は行わない（分類シグナル専用）</text>
+<rect x="20" y="232" width="1860" height="568" rx="18" fill="#f8fafc" stroke="#94a3b8" stroke-width="2.5"/>
+<text x="45" y="262" font-size="20" fill="#0f172a" font-weight="bold" text-anchor="start">ローカルPC / Trusted Environment</text>
+<rect x="790" y="240" width="1078" height="548" rx="16" fill="#fff7ed" stroke="#fb923c" stroke-width="2.5" stroke-dasharray="10 6"/>
+<text x="1830" y="262" font-size="18" fill="#c2410c" font-weight="bold" text-anchor="end">Human Firewall Core</text>
+<rect x="45" y="290" width="190" height="190" rx="14" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/>
+<text x="140.0" y="320" font-size="18" fill="#3730a3" font-weight="bold" text-anchor="middle">Playwright</text>
+<text x="61" y="348" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">Messenger</text>
+<text x="61" y="369" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">Message Requests</text>
+<text x="61" y="390" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">（未読メッセージ）</text>
+<rect x="270" y="290" width="230" height="190" rx="14" fill="#ecfdf5" stroke="#22c55e" stroke-width="2"/>
+<text x="385.0" y="320" font-size="18" fill="#166534" font-weight="bold" text-anchor="middle">Browser Watcher</text>
+<text x="286" y="348" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・未読検知</text>
+<text x="286" y="369" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・スレッドID抽出</text>
+<text x="286" y="390" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・最後の受信が相手発信か</text>
+<text x="286" y="411" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">  を検証（自己返信ループ防止）</text>
+<rect x="535" y="290" width="230" height="190" rx="14" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="2"/>
+<text x="650.0" y="320" font-size="18" fill="#5b21b6" font-weight="bold" text-anchor="middle">SQLite State Store</text>
+<text x="551" y="348" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・SHA-256 ハッシュのみ保存</text>
+<text x="551" y="369" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・重複排除</text>
+<text x="551" y="390" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・返信数カウンタ</text>
+<text x="551" y="411" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・Jev/Gemini 共通の日次</text>
+<text x="551" y="432" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">  LLM上限（100回/日）</text>
+<rect x="810" y="290" width="280" height="190" rx="14" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+<text x="950.0" y="320" font-size="18" fill="#b91c1c" font-weight="bold" text-anchor="middle">① Triage: TypeSafe Jev</text>
+<text x="826" y="348" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">型付きシグナルを取得:</text>
+<text x="826" y="368" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・category（Choice）</text>
+<text x="826" y="388" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・脅威/認証/金銭/Injection/</text>
+<text x="826" y="408" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">  不審リンク（Noul）</text>
+<text x="826" y="428" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・overallRisk（Score）</text>
+<text x="826" y="448" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">障害・タイムアウト・不正形式</text>
+<text x="826" y="468" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">→ Fail-Closed（HUMAN_REQUIRED）</text>
+<rect x="1135" y="290" width="360" height="190" rx="14" fill="#fffbeb" stroke="#f59e0b" stroke-width="2"/>
+<text x="1315.0" y="320" font-size="18" fill="#b45309" font-weight="bold" text-anchor="middle">② Deterministic Policy</text>
+<text x="1151" y="348" font-size="13" fill="#374151" font-weight="normal" text-anchor="start">jev-policy.ts（純粋関数・閾値0.85）</text>
+<text x="1151" y="368" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">脅威 → HUMAN_REQUIRED</text>
+<text x="1151" y="388" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">認証/OTP・金銭・Injection → BLOCK_RECOMMENDED</text>
+<text x="1151" y="408" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">不審リンク → TIME_WASTER</text>
+<text x="1151" y="428" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">低確信度 → HUMAN_REQUIRED</text>
+<text x="1151" y="448" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">NORMAL → POLITE_REPLY / SPAM → IGNORE</text>
+<text x="1151" y="468" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">SALES・SCAM → TIME_WASTER</text>
+<rect x="1540" y="290" width="315" height="190" rx="14" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+<text x="1697.5" y="320" font-size="18" fill="#334155" font-weight="bold" text-anchor="middle">Gemini 呼び出し 0 回</text>
+<text x="1556" y="348" font-size="13" fill="#374151" font-weight="normal" text-anchor="start">ここで処理終了（送信しない）</text>
+<text x="1556" y="370" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・IGNORE</text>
+<text x="1556" y="392" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・HUMAN_REQUIRED（人間が確認）</text>
+<text x="1556" y="414" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・BLOCK_RECOMMENDED</text>
+<text x="1556" y="436" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">  ※推奨判定の記録のみ。</text>
+<text x="1556" y="458" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">  Messenger上のブロックは未実装</text>
+<rect x="810" y="545" width="280" height="200" rx="14" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+<text x="950.0" y="575" font-size="18" fill="#1d4ed8" font-weight="bold" text-anchor="middle">③ Reply Generation</text>
+<text x="826" y="603" font-size="13" fill="#374151" font-weight="normal" text-anchor="start">Google Gemini（返信文生成のみ）</text>
+<text x="826" y="623" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">POLITE_REPLY / TIME_WASTER のみ</text>
+<text x="826" y="643" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">State Machine（TIME_WASTER）:</text>
+<text x="826" y="663" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">CONFUSED_CURIOUS</text>
+<text x="826" y="683" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">→ DEEP_PROBING</text>
+<text x="826" y="703" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">→ HESITANT_CLOSING</text>
+<text x="826" y="723" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">生成失敗 → HUMAN_REQUIRED</text>
+<rect x="1135" y="545" width="360" height="200" rx="14" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+<text x="1315.0" y="575" font-size="18" fill="#166534" font-weight="bold" text-anchor="middle">④ Reply Guard（ローカル検査）</text>
+<text x="1151" y="603" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">送信直前に正規表現で検査:</text>
+<text x="1151" y="625" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">・PII（メール/電話/住所/カード）</text>
+<text x="1151" y="647" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">・金銭・契約・合意/面会の約束</text>
+<text x="1151" y="669" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">・URL / 認証情報</text>
+<rect x="1151" y="693" width="328" height="34" rx="8" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+<text x="1315" y="716" font-size="14" fill="#b91c1c" font-weight="bold" text-anchor="middle">危険検知 → REPLY_BLOCKED（送信中止）</text>
+<rect x="1540" y="545" width="315" height="200" rx="14" fill="#eff6ff" stroke="#0ea5e9" stroke-width="2"/>
+<text x="1697" y="575" font-size="18" fill="#0369a1" font-weight="bold" text-anchor="middle">⑤ Controlled Send Gate</text>
+<text x="1556" y="601" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・ALLOWED_TEST_THREAD_ID 完全一致</text>
+<text x="1556" y="621" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・DOM再検証（アクティブスレッド）</text>
+<text x="1556" y="641" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・累計3返信/スレッド・24h上限</text>
+<text x="1556" y="661" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・15秒間隔 ・Kill Switch</text>
+<rect x="1556" y="673" width="283" height="26" rx="7" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+<text x="1697" y="691" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">DRY_RUN=true → コンソール出力のみ</text>
+<rect x="1556" y="705" width="283" height="26" rx="7" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1697" y="723" font-size="13" fill="#166534" font-weight="bold" text-anchor="middle">DRY_RUN=false → Messengerへ返信送信</text>
+<rect x="270" y="560" width="500" height="140" rx="14" fill="#fefce8" stroke="#eab308" stroke-width="2"/>
+<text x="520.0" y="590" font-size="18" fill="#854d0e" font-weight="bold" text-anchor="middle">Local Dashboard（localhost:3000）</text>
+<text x="286" y="618" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">・Kill Switch 切替  ・スレッド一覧</text>
+<text x="286" y="642" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">・スレッド単位の手動 Pause</text>
+<text x="286" y="666" font-size="14" fill="#1f2937" font-weight="normal" text-anchor="start">※Kill Switch は全段階で確認</text>
+<path d="M520,560 L520,480" fill="none" stroke="#a16207" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#y)"/>
+<text x="530" y="520" font-size="13" fill="#a16207" font-weight="normal" text-anchor="start">状態参照・操作</text>
+<path d="M235,380 L270,380" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M500,380 L535,380" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M765,380 L810,380" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1090,380 L1135,380" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1495,380 L1540,380" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1315,480 L1315,515 L950,515 L950,545" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="1130" y="508" font-size="14" fill="#1d4ed8" font-weight="bold" text-anchor="middle">POLITE_REPLY / TIME_WASTER</text>
+<path d="M1090,645 L1135,645" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M1495,645 L1540,645" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M880,290 L880,208" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="872" y="276" font-size="13" fill="#1d4ed8" font-weight="normal" text-anchor="end">本文＋要約</text>
+<path d="M1020,208 L1020,290" fill="none" stroke="#7c3aed" stroke-width="2.5" marker-end="url(#p)"/>
+<text x="1030" y="276" font-size="13" fill="#6d28d9" font-weight="normal" text-anchor="start">型付きシグナル</text>
+<path d="M1697,745 L1697,772 L140,772 L140,480" fill="none" stroke="#16a34a" stroke-width="2.5" marker-end="url(#g)"/>
+<text x="165" y="764" font-size="14" fill="#166534" font-weight="bold" text-anchor="start">返信送信（Messengerの該当スレッドへ / DRY_RUN=false かつ許可スレッドのみ）</text>
+<rect x="20" y="826" width="1860" height="120" rx="16" fill="#eff6ff" stroke="#93c5fd" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="45" y="860" font-size="16" fill="#1d4ed8" font-weight="bold" text-anchor="start">Internet Boundary / 外部通信 (HTTPS)</text>
+<text x="45" y="884" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">Jev の Action が POLITE_REPLY / TIME_WASTER の場合のみ</text>
+<text x="45" y="904" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">返信生成のため同等の最小コンテキストを送信</text>
+<rect x="760" y="838" width="380" height="98" rx="14" fill="#ffffff" stroke="#2563eb" stroke-width="2.5"/>
+<text x="950" y="868" font-size="20" fill="#1d4ed8" font-weight="bold" text-anchor="middle">Google Gemini API</text>
+<text x="950" y="892" font-size="14" fill="#374151" font-weight="normal" text-anchor="middle">返信文の生成専用（トリアージには使わない）</text>
+<text x="950" y="914" font-size="13" fill="#6b7280" font-weight="normal" text-anchor="middle">※Legacy / Shadow モードでは分類にも使用</text>
+<path d="M940,745 L940,836" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<path d="M980,836 L980,745" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#a)"/>
+<text x="930" y="819" font-size="13" fill="#1d4ed8" font-weight="normal" text-anchor="end">生成依頼</text>
+<text x="990" y="819" font-size="13" fill="#1d4ed8" font-weight="normal" text-anchor="start">返信案</text>
+<rect x="20" y="962" width="600" height="100" rx="14" fill="#fef2f2" stroke="#fca5a5" stroke-width="2"/>
+<text x="40" y="994" font-size="18" fill="#b91c1c" font-weight="bold" text-anchor="start">所有者の個人情報は LLM に渡さない</text>
+<text x="40" y="1020" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">Zero-Owner-Context: 氏名・住所・電話番号・Cookie などは</text>
+<text x="40" y="1042" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">一切送信しない（受信本文に含まれるものを除く）</text>
+<rect x="650" y="962" width="600" height="100" rx="14" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="2"/>
+<text x="670" y="994" font-size="18" fill="#6d28d9" font-weight="bold" text-anchor="start">ローカル保存は本文平文ではなくメタデータのみ</text>
+<text x="670" y="1020" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">SHA-256 ハッシュ・状態・カウンタのみ保持。ログも定型コード</text>
+<text x="670" y="1042" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">（reasonCode）のみで、送信候補文は DEBUG=true 時のみ表示</text>
+<rect x="1280" y="962" width="600" height="100" rx="14" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+<text x="1300" y="994" font-size="18" fill="#166534" font-weight="bold" text-anchor="start">迷ったら送らない（Fail-Closed）</text>
+<text x="1300" y="1020" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">Jev/Gemini の障害・quota 超過・低確信度 → HUMAN_REQUIRED</text>
+<text x="1300" y="1042" font-size="14" fill="#374151" font-weight="normal" text-anchor="start">Reply Guard 遮断 → REPLY_BLOCKED（いずれも自動送信しない）</text>
+</svg>

@@ -15,7 +15,7 @@ export interface DashboardServerOptions {
 
 export function createDashboardServer(options: DashboardServerOptions = {}) {
   const port = options.port ?? 3000;
-  const store = options.store ?? new ThreadStore();
+  const store = options.store ?? new ThreadStore(getConfig().DATABASE_PATH);
 
   const allowedHosts = new Set([
     `localhost:${port}`,
@@ -23,6 +23,9 @@ export function createDashboardServer(options: DashboardServerOptions = {}) {
     'localhost',
     '127.0.0.1',
   ]);
+
+  // Exact match only: a prefix check would also accept e.g. http://localhost:30000
+  const allowedOrigins = new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
 
   const server = http.createServer(async (req, res) => {
     const hostHeader = req.headers.host || '';
@@ -35,7 +38,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}) {
     // Protect POST APIs from CSRF by verifying Origin header if present
     if (req.method === 'POST') {
       const origin = req.headers.origin;
-      if (origin && !origin.startsWith(`http://localhost:${port}`) && !origin.startsWith(`http://127.0.0.1:${port}`)) {
+      if (origin && !allowedOrigins.has(origin)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: Invalid Origin' }));
         return;
