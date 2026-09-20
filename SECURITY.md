@@ -22,7 +22,7 @@ We will acknowledge your report within 48 hours and work with you on an expedite
 
 3. **Rate Limiting & Anti-Ban Safeguards**:
    - To mitigate risk of platform automated bot detection, the firewall imposes strict hard caps (3 replies per thread by default via `CONTROLLED_MAX_REPLIES`, minimum 15s interval, 24h rolling limit, and a shared daily LLM request quota).
-   - Live dispatch (`DRY_RUN=false`) is only performed to the single thread matching `ALLOWED_TEST_THREAD_ID`.
+   - In the default `AUTO_REPLY_SCOPE=test_thread_only` mode, live dispatch (`DRY_RUN=false`) is only performed to the single thread matching `ALLOWED_TEST_THREAD_ID`. In `all_threads` mode, that allowlist is intentionally bypassed and eligible Message Requests can be dispatched subject to the remaining safety gates.
    - Live dispatch should always be preceded by testing in `DRY_RUN=true` mode.
 
 4. **Risks of Full Auto-Reply Scope (`AUTO_REPLY_SCOPE=all_threads`)**:
@@ -33,4 +33,4 @@ We will acknowledge your report within 48 hours and work with you on an expedite
    - **Mechanical Engagement with Impersonators & Adversaries**:
      Sending automated replies to arbitrary unknown senders opens exposure to prompt injection attempts, social engineering, or adversarial probing designed to elicit specific confirmations or establish sender legitimacy.
    - **Mitigation & Rollback**:
-     `all_threads` mode must only be operated with strict rate limits (`CONTROLLED_MAX_REPLIES`, `MAX_REPLIES_PER_THREAD_PER_DAY`, `MIN_REPLY_INTERVAL_SECONDS`), active Reply Guard validation, and an immediate rollback plan. Operators can instantly revoke full automation by resetting `AUTO_REPLY_SCOPE=test_thread_only` or triggering the emergency killswitch (`PAUSE_ALL=true`).
+     `all_threads` mode must only be operated with strict rate limits (`CONTROLLED_MAX_REPLIES`, `MAX_REPLIES_PER_THREAD_PER_DAY`, `MIN_REPLY_INTERVAL_SECONDS`), active Reply Guard validation, and an immediate rollback plan. For an immediate stop of a running watcher, use `npm run pause` or the dashboard Kill Switch. Changes to `AUTO_REPLY_SCOPE` or `.env` `PAUSE_ALL=true` are startup configuration and require restarting the watcher to take effect.
