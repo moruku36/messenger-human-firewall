@@ -233,11 +233,17 @@ interface ThreadLinkInfo {
 async function readThreadLinks(page: Page): Promise<ThreadLinkInfo[]> {
   const rows = await page.$$eval(
     joinSelectors(MESSENGER_SELECTORS.threadItem),
-    (els, unreadSel) => {
-      // Fallback: a small, round, filled element inside a role=button within the row link
-      // (the blue unread dot). Presence dots on avatars are not inside such a button.
-      const hasDot = (root: Element): boolean =>
-        Array.from(root.querySelectorAll('[role="button"] span')).some((s) => {
+    // NOTE: this callback is serialised and run inside the browser. Never declare a named
+    // function or `const f = () => ...` in it: tsx/esbuild (keepNames) would emit a `__name(...)`
+    // helper call that does not exist in the page ("ReferenceError: __name is not defined").
+    // Inline anonymous callbacks only.
+    (els, unreadSel) =>
+      els.map((el) => {
+        const row = el.closest('[role="row"]');
+        const current = el.getAttribute('aria-current');
+        // Fallback: a small, round, filled element inside a role=button within the row link
+        // (the blue unread dot). Presence dots on avatars are not inside such a button.
+        const hasDot = Array.from(el.querySelectorAll('[role="button"] span')).some((s) => {
           const b = s.getBoundingClientRect();
           const cs = getComputedStyle(s);
           return (
@@ -248,19 +254,15 @@ async function readThreadLinks(page: Page): Promise<ThreadLinkInfo[]> {
             cs.backgroundColor !== 'rgba(0, 0, 0, 0)'
           );
         });
-      return els.map((el) => {
-        const row = el.closest('[role="row"]');
-        const current = el.getAttribute('aria-current');
         return {
           href: el.getAttribute('href'),
           current: current !== null && current !== '' && current !== 'false',
           unread:
             el.querySelector(unreadSel) !== null ||
             (row !== null && row.querySelector(unreadSel) !== null) ||
-            hasDot(el),
+            hasDot,
         };
-      });
-    },
+      }),
     joinSelectors(MESSENGER_SELECTORS.unreadIndicator),
   );
 
