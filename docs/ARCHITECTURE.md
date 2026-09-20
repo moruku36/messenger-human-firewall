@@ -3,7 +3,7 @@
 ## 1. System Topology & Trust Boundary
 
 <p align="center">
-  <img src="assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
+  <img src="assets/architecture.svg" alt="Messenger Human Firewall 構成図" width="100%">
 </p>
 
 ```text
@@ -35,7 +35,7 @@
 │         │                                                   ║   ║       │   │   │
 │         ▼                                                   ║   ║       │   │   │
 │  [Controlled Send Gate]                                     ║   ║       │   │   │
-│    (Strict Thread Match, 15s interval, 24h cap, Kill Switch)║   ║       │   │   │
+│    (Scope Gate, DOM re-check, 15s interval, 24h cap, Kill Switch)║   ║       │   │   │
 │         │                                                   ║   ║       │   │   │
 │         ▼                                                   ║   ║       │   │   │
 │  [Playwright Dispatch to Active Thread]                     ║   ║       │   │   │
@@ -87,7 +87,8 @@
    - 危険パターン検知時は即座に `REPLY_BLOCKED` とし、送信を中止（自動リトライなし。`HUMAN_REQUIRED` フラグは立たない）。
 
 5. **Controlled Send Gate (`src/core/pipeline.ts`, `src/core/controlled-limiter.ts`, `src/channels/messenger/sender.ts`)**:
-   - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しない）。
+   - `AUTO_REPLY_SCOPE=test_thread_only`（デフォルト）では `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ実送信し、未設定なら送信しません。
+   - `AUTO_REPLY_SCOPE=all_threads` では許可リストをバイパスし、Message Requests で検出された適格スレッドを送信対象にします。
    - スレッドID（会話URLの `/t/<id>`）の完全一致、およびクリック後に対象リンクだけが `aria-current` を持つことの再検証。
    - 1スレッド累計最大 `CONTROLLED_MAX_REPLIES`（デフォルト3）通、24時間ローリング最大 `MAX_REPLIES_PER_THREAD_PER_DAY`（デフォルト20）通、1日最大 `MAX_LLM_REQUESTS_PER_DAY`（デフォルト100）回のLLMリクエスト、15秒送信インターバル、緊急停止（Kill Switch）を強制。
 
