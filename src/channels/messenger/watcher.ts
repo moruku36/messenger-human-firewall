@@ -21,6 +21,29 @@ export interface ScannedThread {
   lastMessageHash: string;
   lastIncomingText: string;
   eligibility: ThreadEligibilityResult;
+  /** Opened from Message Requests (`/requests/...`): no composer, cannot be replied to. */
+  isRequest: boolean;
+}
+
+/** Tabs of the Message Requests page (UI language: ja / en). */
+const REQUEST_TABS = [
+  { name: 'MAYBE_KNOWN', label: /知り合いかも|People you may know|You may know/i, optional: false },
+  { name: 'SPAM', label: /スパム|Spam/i, optional: true },
+] as const;
+
+/**
+ * Activates a Message Requests tab (role=tab whose text matches). Returns false if the tab does
+ * not exist. Already-selected tabs are left alone.
+ */
+async function activateRequestsTab(page: Page, label: RegExp): Promise<boolean> {
+  const tab = page.locator('[role="tab"]').filter({ hasText: label }).first();
+  if ((await tab.count()) === 0) return false;
+  if ((await tab.getAttribute('aria-selected')) !== 'true') {
+    await tab.click().catch(() => {});
+    // The list is re-rendered client-side after switching tabs.
+    await page.waitForTimeout(process.env.NODE_ENV === 'test' ? 150 : 1200);
+  }
+  return true;
 }
 
 function joinSelectors(selectors: readonly string[]): string {
@@ -263,7 +286,8 @@ async function waitUntilActive(page: Page, threadId: string, attempts = 20): Pro
 }
 
 /**
- * Scans the Message Requests list, checks eligibility, and deduplicates via SQLite.
+ * Scans the Message Requests tabs ("知り合いかも", and "スパム" unless SCAN_SPAM_TAB=false),
+ * checks eligibility, and deduplicates via SQLite.
  * Only threads with an unread marker are processed unless SCAN_INCLUDE_READ_THREADS=true.
  */
 export async function scanMessageRequests(
@@ -282,8 +306,32 @@ export async function scanMessageRequests(
   }
 
   const scanned: ScannedThread[] = [];
+  const seen = new Set<string>();
+  for (const tab of REQUEST_TABS) {
+    if (tab.optional && !config.SCAN_SPAM_TAB) continue;
+    const found = await activateRequestsTab(page, tab.label);
+    // The primary tab is scanned even if it cannot be found (already the visible list).
+    if (!found && tab.optional) {
+      scanLog(null, `tab=${tab.name} not found, skipped`);
+      continue;
+    }
+    scanLog(null, `tab=${tab.name}`);
+    scanned.push(...(await scanCurrentList(page, store, seen)));
+  }
+  return scanned;
+}
+
+/** Scans the conversation list that is currently displayed. */
+async function scanCurrentList(
+  page: Page,
+  store: ThreadStore,
+  seen: Set<string>,
+): Promise<ScannedThread[]> {
+  const config = getConfig();
+  const scanned: ScannedThread[] = [];
   // Collect ids first: element handles go stale as the SPA re-renders after each click.
-  const allLinks = await readThreadLinks(page);
+  const allLinks = (await readThreadLinks(page)).filter((l) => !seen.has(l.threadId));
+  allLinks.forEach((l) => seen.add(l.threadId));
   const candidates = allLinks.filter((l) => l.unread || config.SCAN_INCLUDE_READ_THREADS);
   scanLog(
     null,
@@ -362,6 +410,7 @@ export async function scanMessageRequests(
       lastMessageHash,
       lastIncomingText: eligibility.lastIncomingMessage,
       eligibility,
+      isRequest: new URL(page.url(), 'https://www.messenger.com').pathname.startsWith('/requests/'),
     });
   }
 

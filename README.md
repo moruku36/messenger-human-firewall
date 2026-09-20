@@ -208,8 +208,9 @@ cp .env.example .env
 - `TYPESAFE_API_KEY`: TypeSafe Jev API Key（Active Mode の本番トリアージ、または Shadow Mode の比較評価に使用）
 - `GEMINI_API_KEY`: Google Gemini API Key（Active Jev Mode では返信文生成用。Legacy / Shadow Mode ではトリアージにも使用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
-- `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
+- `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）。いずれの値でも、メッセージリクエストのスレッドには送信しません（返信欄が無く、承認が必要なため）
 - `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。`AUTO_REPLY_SCOPE=test_thread_only` では未設定の場合、実送信は一切行われません。`all_threads` ではこの値は参照されません。
+- `SCAN_SPAM_TAB`: `true`（デフォルト）で、リクエストの「スパム」タブも監視します（多くの見知らぬ相手のメッセージはここに入ります）。スレッドごとにLLMリクエストを消費するため、日次上限 `MAX_LLM_REQUESTS_PER_DAY` に注意してください。
 - `SCAN_INCLUDE_READ_THREADS`: `true` にすると未読マークのないリクエストスレッドも処理します（最後のメッセージは1回だけ処理され、ハッシュで重複排除されます）。未読マークの実DOM確認が済むまで、既存スレッドでパイプラインを検証するのに使えます。デフォルトは `false`。
 - `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
 
@@ -337,7 +338,7 @@ AUTO_REPLY_SCOPE=all_threads
 
 > [!WARNING]
 > **重要注意事項**:
-> - `all_threads` が変更するのは送信許可リストの判定だけです。現在の watcher は Message Requests を走査し、未承認リクエストの実DOMには返信欄がありません。そのため、`all_threads` にしても未承認リクエストへ自動返信はできません。
+> - `all_threads` が変更するのは送信許可リストの判定だけです。現在の watcher は Message Requests を走査し、未承認リクエストの実DOMには返信欄がありません。そのため、`all_threads` にしても未承認リクエストへ自動返信はできません。リクエストのスレッドでは送信を試みず、`REQUEST_THREAD_NO_COMPOSER` として見送ります（検出・判定・返信案の生成までを行うトリアージ専用）。
 > - 返信欄が存在しない／送信できない場合は Fail-Closed で `HUMAN_REQUIRED` にし、メッセージ状態を保存して同じ受信メッセージを次回スキャンで再度LLM処理しないようにします。
 > - 送信可能な画面で動作する場合も、`CONTROLLED_MAX_REPLIES`、24時間上限 `MAX_REPLIES_PER_THREAD_PER_DAY`、最小間隔 `MIN_REPLY_INTERVAL_SECONDS`、Reply Guard、LLM日次上限 `MAX_LLM_REQUESTS_PER_DAY`、`HUMAN_REQUIRED` 分岐、重複検知、Kill Switch は**全て機能し続けます**。
 > - Metaの利用規約や自動化ポリシー違反によるアカウント制限・一時BANのリスクを十分に理解した上で設定してください。詳細は [SECURITY.md](SECURITY.md) を参照してください。
@@ -414,7 +415,7 @@ npm run lint
 - スレッド識別子は会話リンク（`a[role="link"][href="/t/<id>"]`）のURL由来のIDで、相手名（`aria-label`）は使いません。ソルト無しのSHA-256でハッシュ化して保存します。
 - セレクタは実際の messenger.com のDOMで確認した属性（`role` / `href` / `aria-current` / `contenteditable`）に基づきます。ただし次は**実画面で未検証**です: 未読マーク（`SCAN_INCLUDE_READ_THREADS=false` の場合の未読判定）、送信ボタン（Enterキーで送信するフォールバックを使用）、未承認の Message Request には返信欄が表示されないため、返信には承認が必要。実送信は、これらを `DRY_RUN=true` で確認するまで有効にしないでください。
 - メッセージの送受信の向きはDOMにマーカーが無いため、吹き出しの水平位置（左＝受信、右＝送信）で判定します。中央寄りの行（日付・システム通知）は「不明」とし、最後の行が不明な場合は返信しません。
-- 監視対象は「リクエスト」の「知り合いかも」タブの一覧です（「スパム」タブは対象外）。メッセージ本文のないスレッド（グループの退出通知、「メッセージを読み込めません」など）は `NO_MESSAGES` としてスキップされます。
+- 監視対象は「リクエスト」の「知り合いかも」タブと「スパム」タブ（`SCAN_SPAM_TAB=false` で「スパム」を除外）の一覧です。メッセージ本文のないスレッド（グループの退出通知、「メッセージを読み込めません」など）は `NO_MESSAGES` としてスキップされます。
 - リクエストのスレッドは、開くと既読になります（相手には通知されません）。
 - Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信候補は Reply Guard と送信ゲート（scope / DOM再検証 / composer確認 / 各種上限）を通ります。
 - 送信処理が例外で失敗した場合は Fail-Closed で `HUMAN_REQUIRED` に倒し、その受信メッセージを処理済みとして保存します。これにより、同じメッセージで送信失敗とLLM呼び出しを繰り返しません。

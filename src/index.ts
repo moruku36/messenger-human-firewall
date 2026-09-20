@@ -34,10 +34,10 @@ async function runScanCycle(
   console.log('🔍 Navigating to Message Requests...');
   await navigateToMessageRequests(page);
 
-  console.log('👀 Scanning unread Message Requests...');
+  console.log('👀 Scanning Message Requests...');
   const scanned = await scanMessageRequests(page, store);
 
-  console.log(`📊 Scan completed. Detected ${scanned.length} eligible unread thread(s).`);
+  console.log(`📊 Scan completed. Detected ${scanned.length} eligible thread(s).`);
 
   for (const thread of scanned) {
     assertNotPaused('Processing Scanned Thread');
@@ -48,6 +48,7 @@ async function runScanCycle(
       senderIdHash: thread.senderIdHash,
       lastMessageHash: thread.lastMessageHash,
       incomingText: thread.lastIncomingText,
+      isRequestThread: thread.isRequest,
       page,
     });
   }
@@ -73,6 +74,7 @@ export async function runWatcherLoop(): Promise<void> {
   console.log(`[Config] Poll Interval : ${config.WATCH_POLL_INTERVAL_SECONDS}s`);
   console.log(`[Config] Reply Scope   : ${config.AUTO_REPLY_SCOPE}`);
   console.log(`[Config] Include Read  : ${config.SCAN_INCLUDE_READ_THREADS}`);
+  console.log(`[Config] Scan Spam Tab : ${config.SCAN_SPAM_TAB}`);
   const jevModeDesc = !config.JEV_ENABLED
     ? 'Disabled'
     : config.JEV_SHADOW_MODE
