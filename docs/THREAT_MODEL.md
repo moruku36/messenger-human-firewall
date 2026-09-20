@@ -64,8 +64,8 @@
 ### 2.8 Unexpected DOM Change & Wrong-Thread Send (DOM変更・別スレッド誤送信)
 - **脅威**: Facebook MessengerのUI更新や非同期ローディングにより、別スレッドにフォーカスが当たった状態で誤ってメッセージを送信してしまう。
 - **対策**:
-  - `MESSENGER_SELECTORS` による一元管理と、`role`, `aria-label` 等の安定したアクセシビリティセレクタのみを採用。
-  - 送信直前の二重検証（`selectAndVerifyActiveThread`）: 対象スレッドIDの完全一致検証に加え、クリック後にDOM全体のアクティブ要素（`.active` / `[aria-selected="true"]`）を再取得し、対象スレッドと完全一致することを確認した上でなければ送信を実行しない。
+  - `MESSENGER_SELECTORS` による一元管理と、`role`, `href`, `aria-current`, `contenteditable` 等の安定した属性のみを採用（実DOMにはクラス名の難読化があり `data-testid` も無いため）。
+  - 送信直前の二重検証（`selectAndVerifyActiveThread`）: 対象スレッドID（会話URLの `/t/<id>`）の完全一致検証に加え、クリック後に一覧内で `aria-current` を持つ会話が対象スレッドただ1つであることを再取得して確認した上でなければ送信を実行しない。
   - 要素が見つからない場合や曖昧な場合は即時安全停止（Fail-Safe）。
 
 ### 2.9 API Cost Explosion & Kill Switch
@@ -107,7 +107,8 @@
    - **受容と緩和**: 閾値は `JEV_HIGH_RISK_THRESHOLD` で調整可能です。返信内容は Reply Guard で検査され、所有者情報は LLM に渡されません。
 
 5. **スレッド識別子の安定性・匿名性**:
-   - スレッドIDはDOMの `id`、なければ `aria-label`（相手名を含み得る）、最終的にリスト内インデックスから決まり、ソルト無しのSHA-256でハッシュ化されます。同名の相手との衝突、ラベル内容の変化による重複排除の失敗、名前の辞書攻撃によるハッシュ逆引きの可能性があります。
+   - スレッドIDは会話リンクのURL（`/t/<id>`）から取得し、相手名を含む `aria-label` は使いません。ソルト無しのSHA-256でハッシュ化して保存するため、IDが推測可能な場合に総当たりでハッシュを逆引きされる可能性は残ります。
+   - メッセージの送受信の向きは吹き出しの水平位置で推定するため、UI変更で誤判定し得ます。最後の行の向きが不明な場合は返信しない（Fail-Safe）設計です。
 
 6. **アップストリーム LLM の可用性・レート制限**:
    - Google Gemini API（返信生成）および TypeSafe Jev API（トリアージ）の一時的な障害、ネットワーク切断、または Quota（429 Too Many Requests）の枯渇により、トリアージが遅延・停止するリスクがあります。

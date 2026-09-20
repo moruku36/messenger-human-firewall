@@ -1,7 +1,10 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+// Tests must be hermetic: never pick up a developer's real .env (API keys, JEV_ENABLED, ...).
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config();
+}
 
 const BooleanStringSchema = z
   .enum(['true', 'false'], {
@@ -60,6 +63,8 @@ export const ConfigSchema = z.object({
   DATABASE_PATH: z.string().default('data/firewall.db'),
   PORT: PositiveIntSchema(1024, 65535, '3000'),
   WATCH_POLL_INTERVAL_SECONDS: PositiveIntSchema(10, 3600, '60'),
+  // Also process threads without an unread marker (useful while the real unread marker is unverified)
+  SCAN_INCLUDE_READ_THREADS: BooleanStringSchema.default('false'),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

@@ -1,7 +1,23 @@
 /**
- * Centralized, strict DOM Selectors for Facebook Messenger.
- * Avoid generic positional/wide selectors (e.g. role="row", role="gridcell").
- * Strongly separates incoming vs outgoing messages.
+ * Centralized DOM selectors for Facebook Messenger (messenger.com).
+ *
+ * Verified against the real messenger.com DOM (Sept 2026):
+ * - Class names are obfuscated and there are NO `data-testid` attributes, so only
+ *   stable attributes (`role`, `href`, `contenteditable`, `aria-current`) are used.
+ * - Every conversation in a list row is `<a role="link" href=".../t/<id>/">`:
+ *   `/requests/t/<id>/` on the Message Requests page, `/t/<id>` or `/e2ee/t/<id>` in the inbox.
+ *   The active one carries `aria-current="page"`.
+ * - The sidebar "chat" nav link is `<a href="/t/">` (no id, not inside a list row); it is
+ *   excluded because it has no id and is not in a `[role="row"]`.
+ * - Message requests have NO composer (textboxes = 0); the thread shows 承認 / 削除 buttons.
+ *   Replying requires accepting the request, which this tool never does.
+ * - The composer is a Lexical editor: `div[role="textbox"][contenteditable="true"]` whose
+ *   aria-label is "<name>に書く" (not a fixed string), so it must not be matched by label.
+ *
+ * Not yet verified against the real DOM (needs an actual unread request to inspect):
+ * - `unreadIndicator`
+ * - `sendButton` (Enter is used as fallback; never match `*="送信"` loosely, since
+ *   "「いいね！」を送信" / "音声クリップを送信" buttons would be hit).
  */
 export const MESSENGER_SELECTORS = {
   // Navigation & Tabs
@@ -12,14 +28,11 @@ export const MESSENGER_SELECTORS = {
     '[role="tab"][aria-label="メッセージリクエスト" i]',
   ],
 
-  // Specific thread container in the Message Requests list
-  threadItem: [
-    'div[data-testid="messenger-chat-list-item"]',
-    'div[role="listitem"][aria-label*="とのチャット" i]',
-    'div[role="listitem"][aria-label*="Conversation with" i]',
-  ],
+  // Conversation list entries. The thread id is taken from the href, never from aria-label
+  // (which contains the sender's name).
+  threadItem: ['[role="row"] a[role="link"][href*="/t/"]'],
 
-  // Strict Unread badge (excludes broad media tags)
+  // UNVERIFIED on the real DOM: best-effort unread markers inside a list row.
   unreadIndicator: [
     'span[aria-label*="未読" i]',
     'span[aria-label*="unread" i]',
@@ -27,33 +40,23 @@ export const MESSENGER_SELECTORS = {
     'div[aria-label*="unread" i]',
   ],
 
-  // STRICT SEPARATION: Incoming message from stranger
-  incomingMessageBubble: [
-    'div[data-testid="incoming_message"]',
-    'div[role="row"]:not([aria-label*="あなたが送信" i]):not([aria-label*="You sent" i]) div[dir="auto"]',
-  ],
-
-  // STRICT SEPARATION: Outgoing message sent by self / bot
+  // Legacy explicit outgoing markers. The real DOM has none of these on message rows,
+  // so direction is normally derived from horizontal position (see watcher.ts).
   outgoingMessageBubble: [
-    'div[data-testid="outgoing_message"]',
     'div[aria-label*="You sent" i]',
     'div[aria-label*="あなたが送信" i]',
     'div[aria-label*="送信済み" i]',
   ],
 
-  // Text input box inside active thread
-  messageInput: [
-    'div[role="textbox"][contenteditable="true"][aria-label*="メッセージ" i]',
-    'div[role="textbox"][contenteditable="true"][aria-label*="Message" i]',
-  ],
+  // Text input box inside the active thread (Lexical editor).
+  messageInput: ['div[role="textbox"][contenteditable="true"]'],
 
-  // Send button
+  // Send button (exact labels only). The composer falls back to Enter when absent.
   sendButton: [
     'div[role="button"][aria-label="Press enter to send" i]',
     'div[role="button"][aria-label="送信" i]',
     'button[aria-label="Press enter to send" i]',
     'button[aria-label="送信" i]',
-    'div[data-testid="send_button"]',
   ],
 
   // Login form indicator

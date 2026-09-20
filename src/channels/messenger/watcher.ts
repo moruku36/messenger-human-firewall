@@ -2,6 +2,7 @@ import type { Page } from 'playwright';
 import {
   assertNotPaused,
   computeHash,
+  getConfig,
   logEvent,
   type ThreadStore,
 } from '../../core/index.js';
@@ -13,12 +14,54 @@ import {
 } from './validator.js';
 
 export interface ScannedThread {
+  /** Thread id taken from the conversation URL (`/t/<id>`), e.g. "1234567890". */
   threadId: string;
   threadHash: string;
   senderIdHash: string;
   lastMessageHash: string;
   lastIncomingText: string;
   eligibility: ThreadEligibilityResult;
+}
+
+function joinSelectors(selectors: readonly string[]): string {
+  return selectors.join(', ');
+}
+
+/**
+ * Alignment = (leftGap - rightGap) / width of the bubble inside the conversation.
+ * Incoming bubbles hug the left edge (negative), outgoing ones the right edge (positive),
+ * and centred notices are symmetric (~0). Using gaps instead of the bubble centre keeps wide
+ * bubbles classifiable. Anything within +/- ALIGN_THRESHOLD is ambiguous.
+ */
+const ALIGN_THRESHOLD = 0.06;
+
+const SYSTEM_NOTICE_MARKERS = [
+  'エンドツーエンド',
+  'end-to-end encrypted',
+  'メッセージリクエストを承認',
+  'accepted the request',
+];
+
+/** Scan diagnostics: reason codes and numbers only, never message text or names. */
+function scanLog(threadHash: string | null, msg: string): void {
+  const who = threadHash ? ` thread=${threadHash.slice(0, 8)}` : '';
+  console.log(`[scan]${who} ${msg}`);
+}
+
+/**
+ * Extracts the stable thread id from a conversation link href.
+ * `/t/123` and `/e2ee/t/123` both yield "123". The sender's name (aria-label) is never used.
+ */
+export function threadIdFromHref(href: string | null | undefined): string | null {
+  if (!href) return null;
+  let pathname: string;
+  try {
+    pathname = new URL(href, 'https://www.messenger.com').pathname;
+  } catch {
+    return null;
+  }
+  const match = /(?:^|\/)t\/([^/?#]+)/.exec(pathname);
+  return match ? match[1] : null;
 }
 
 /**
@@ -54,69 +97,181 @@ export async function navigateToMessageRequests(page: Page): Promise<boolean> {
   const currentUrl = page.url();
   if (!currentUrl.includes('requests')) {
     await page.goto('https://www.messenger.com/requests/', { waitUntil: 'domcontentloaded' }).catch(() => {});
+    // The list is rendered client-side; give it a moment before scanning.
+    await page.waitForSelector(joinSelectors(MESSENGER_SELECTORS.threadItem), { timeout: 8000 }).catch(() => {});
   }
 
   return true;
 }
 
 /**
- * Extracts all message bubbles currently rendered in the active chat view.
- * Strictly differentiates between incoming and outgoing messages.
+ * Extracts message rows from the active conversation.
+ *
+ * The real DOM marks neither direction nor sender on message rows, so direction is derived
+ * from where the bubble sits horizontally inside the conversation grid (incoming = left,
+ * outgoing = right). Rows that sit in the middle (date separators, system notices) are
+ * reported as 'unknown', and the eligibility validator refuses to reply if the LAST row is
+ * unknown, so a misjudged direction can never cause a reply.
+ *
+ * Two DOM shapes exist (both verified on the real site):
+ * - Regular chats: a `[role="grid"]` (that does NOT contain thread-list links) with one
+ *   `[role="row"]` per message.
+ * - Message requests (`/requests/t/<id>`): no grid; the conversation is a `[role="log"]` with
+ *   one `[role="article"]` per message. Only visible text (non-zero size) is used, since the
+ *   articles also contain zero-width hidden nodes. Header/info blocks and the 承認/削除
+ *   controls live outside the articles.
  */
 export async function extractActiveThreadMessages(page: Page): Promise<ThreadMessage[]> {
-  const messages: ThreadMessage[] = [];
-
-  // Query all message rows in sequence
-  const rows = await page.$$('[role="row"], .message-row');
-  const outgoingSelector = MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.outgoingMessageBubble);
-
-  for (const row of rows) {
-    // Ignore system separators or status notices (e.g. "Messages are end-to-end encrypted")
-    const isSystemNotice = await row.evaluate((el) => {
-      const role = el.getAttribute('role');
-      const text = el.textContent || '';
-      return (
-        role === 'separator' ||
-        el.classList.contains('system-message') ||
-        text.includes('エンドツーエンド') ||
-        text.includes('end-to-end encrypted') ||
-        text.includes('メッセージリクエストを承認') ||
-        text.includes('accepted the request')
+  const raw = await page.evaluate(
+    ({ threadSel, outgoingSel }) => {
+      const grids = Array.from(document.querySelectorAll('[role="grid"]')).filter(
+        (g) => !g.querySelector(threadSel),
       );
-    });
+      grids.sort(
+        (a, b) => b.querySelectorAll('[role="row"]').length - a.querySelectorAll('[role="row"]').length,
+      );
 
-    if (isSystemNotice) {
-      continue;
-    }
+      // Regular chat: one row per message inside the conversation grid.
+      if (grids.length > 0 && grids[0].querySelector('[role="row"]')) {
+        const grid = grids[0];
+        const gridRect = grid.getBoundingClientRect();
+        return Array.from(grid.querySelectorAll('[role="row"]')).map((row) => {
+          const text = ((row as HTMLElement).innerText || '').trim();
+          const bubble = row.querySelector('[dir="auto"]');
+          let align: number | null = null;
+          if (bubble && gridRect.width > 0) {
+            const r = bubble.getBoundingClientRect();
+            align = (r.left - gridRect.left - (gridRect.right - r.right)) / gridRect.width;
+          }
+          const explicitOutgoing = row.matches(outgoingSel) || row.querySelector(outgoingSel) !== null;
+          return { text, align, explicitOutgoing, assumeIncoming: false };
+        });
+      }
 
-    const isOutgoing = await row.evaluate((el, sel) => {
-      return el.matches(sel) || el.querySelector(sel) !== null;
-    }, outgoingSelector);
-
-    const textContent = (await row.innerText()).trim();
-    if (textContent) {
-      messages.push({
-        direction: isOutgoing ? 'outgoing' : 'incoming',
-        text: textContent,
+      // Message request: one article per message inside the log region.
+      const log = document.querySelector('[role="main"] [role="log"]');
+      if (!log) return [];
+      const logRect = log.getBoundingClientRect();
+      return Array.from(log.querySelectorAll('[role="article"]')).map((article) => {
+        const leaves = Array.from(article.querySelectorAll('[dir="auto"]')).filter((el) => {
+          if (el.querySelector('[dir="auto"]')) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        const text = leaves
+          .map((el) => ((el as HTMLElement).innerText || '').trim())
+          .filter((t) => t.length > 0)
+          .join('\n');
+        let align: number | null = null;
+        if (leaves.length > 0 && logRect.width > 0) {
+          const r = leaves[0].getBoundingClientRect();
+          align = (r.left - logRect.left - (logRect.right - r.right)) / logRect.width;
+        }
+        const explicitOutgoing = article.matches(outgoingSel) || article.querySelector(outgoingSel) !== null;
+        // A message request only ever contains the requester's messages (once you reply the
+        // request is accepted and moves to the inbox), so everything here is incoming.
+        const assumeIncoming = location.pathname.startsWith('/requests/');
+        return { text, align, explicitOutgoing, assumeIncoming };
       });
+    },
+    {
+      threadSel: joinSelectors(MESSENGER_SELECTORS.threadItem),
+      outgoingSel: joinSelectors(MESSENGER_SELECTORS.outgoingMessageBubble),
+    },
+  );
+
+  const messages: ThreadMessage[] = [];
+  for (const row of raw) {
+    if (!row.text) continue;
+    if (SYSTEM_NOTICE_MARKERS.some((m) => row.text.includes(m))) continue;
+
+    let direction: ThreadMessage['direction'] = 'unknown';
+    if (row.explicitOutgoing) {
+      direction = 'outgoing';
+    } else if (row.assumeIncoming) {
+      direction = 'incoming';
+    } else if (row.align !== null) {
+      if (row.align < -ALIGN_THRESHOLD) direction = 'incoming';
+      else if (row.align > ALIGN_THRESHOLD) direction = 'outgoing';
     }
+    messages.push({ direction, text: row.text, align: row.align ?? undefined });
   }
 
   return messages;
 }
 
-function MEN_SELECTOR_ARRAY(selectors: readonly string[]): string {
-  return selectors.join(', ');
+interface ThreadLinkInfo {
+  threadId: string;
+  current: boolean;
+  unread: boolean;
+}
+
+/** Reads all conversation links currently in the list (id, active state, unread marker). */
+async function readThreadLinks(page: Page): Promise<ThreadLinkInfo[]> {
+  const rows = await page.$$eval(
+    joinSelectors(MESSENGER_SELECTORS.threadItem),
+    (els, unreadSel) =>
+      els.map((el) => {
+        const row = el.closest('[role="row"]');
+        const current = el.getAttribute('aria-current');
+        return {
+          href: el.getAttribute('href'),
+          current: current !== null && current !== '' && current !== 'false',
+          unread: el.querySelector(unreadSel) !== null || (row !== null && row.querySelector(unreadSel) !== null),
+        };
+      }),
+    joinSelectors(MESSENGER_SELECTORS.unreadIndicator),
+  );
+
+  const seen = new Set<string>();
+  const links: ThreadLinkInfo[] = [];
+  for (const r of rows) {
+    const threadId = threadIdFromHref(r.href);
+    if (!threadId || seen.has(threadId)) continue;
+    seen.add(threadId);
+    links.push({ threadId, current: r.current, unread: r.unread });
+  }
+  return links;
+}
+
+/** True only if the given thread is the single active (aria-current) conversation in the list. */
+async function isOnlyActiveThread(page: Page, threadId: string): Promise<boolean> {
+  const links = await readThreadLinks(page);
+  const active = links.filter((l) => l.current);
+  return active.length === 1 && active[0].threadId === threadId;
+}
+
+/** Clicks the link for `threadId`. Returns false if no such link exists in the list. */
+async function clickThreadLink(page: Page, threadId: string): Promise<boolean> {
+  const handles = await page.$$(joinSelectors(MESSENGER_SELECTORS.threadItem));
+  for (const handle of handles) {
+    if (threadIdFromHref(await handle.getAttribute('href')) === threadId) {
+      await handle.click().catch(() => {});
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Waits until `threadId` is the single active conversation. */
+async function waitUntilActive(page: Page, threadId: string, attempts = 20): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (await isOnlyActiveThread(page, threadId)) return true;
+    await page.waitForTimeout(250);
+  }
+  return false;
 }
 
 /**
- * Scans unread message requests in the sidebar, checks eligibility, and deduplicates via SQLite.
+ * Scans the Message Requests list, checks eligibility, and deduplicates via SQLite.
+ * Only threads with an unread marker are processed unless SCAN_INCLUDE_READ_THREADS=true.
  */
 export async function scanMessageRequests(
   page: Page,
   store: ThreadStore,
 ): Promise<ScannedThread[]> {
   assertNotPaused('Scanning Message Requests');
+  const config = getConfig();
 
   if (await isLoginRequired(page)) {
     logEvent({
@@ -127,36 +282,51 @@ export async function scanMessageRequests(
   }
 
   const scanned: ScannedThread[] = [];
-  const threadElements = await page.$$(MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.threadItem));
+  // Collect ids first: element handles go stale as the SPA re-renders after each click.
+  const allLinks = await readThreadLinks(page);
+  const candidates = allLinks.filter((l) => l.unread || config.SCAN_INCLUDE_READ_THREADS);
+  scanLog(
+    null,
+    `links=${allLinks.length} unread=${allLinks.filter((l) => l.unread).length} candidates=${candidates.length}`,
+  );
 
-  for (let i = 0; i < threadElements.length; i++) {
-    assertNotPaused(`Processing thread index ${i}`);
-    const threadEl = threadElements[i];
+  for (const candidate of candidates) {
+    assertNotPaused(`Processing thread ${computeHash(candidate.threadId).slice(0, 8)}`);
+    const { threadId } = candidate;
 
-    // Check for unread indicator
-    const unreadEl = await threadEl.$(MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.unreadIndicator));
-    if (!unreadEl) {
-      continue; // Skip already read threads
+    const threadHash = computeHash(threadId);
+    const senderIdHash = computeHash(`sender-${threadId}`);
+
+    // Open the thread and make sure it (and only it) is the active conversation before reading.
+    if (!(await clickThreadLink(page, threadId))) {
+      scanLog(threadHash, 'skip=CLICK_TARGET_NOT_FOUND');
+      continue;
+    }
+    if (!(await waitUntilActive(page, threadId))) {
+      const current = (await readThreadLinks(page)).filter((l) => l.current).length;
+      scanLog(threadHash, `skip=NOT_SINGLE_ACTIVE (aria-current links=${current})`);
+      continue;
+    }
+    await page.waitForTimeout(process.env.NODE_ENV === 'test' ? 100 : 800);
+
+    const messages = await extractActiveThreadMessages(page);
+
+    // The page must not have switched conversations while we were reading.
+    if (!(await isOnlyActiveThread(page, threadId))) {
+      scanLog(threadHash, 'skip=ACTIVE_THREAD_CHANGED');
+      continue;
     }
 
-    // Extract thread identifier (id or accessible label)
-    const rawId =
-      (await threadEl.getAttribute('id')) ||
-      (await threadEl.getAttribute('aria-label')) ||
-      `thread-${i}`;
-
-    const threadHash = computeHash(rawId);
-    const senderIdHash = computeHash(`sender-${rawId}`);
-
-    // Click to activate thread in the main panel
-    await threadEl.click().catch(() => {});
-    await page.waitForTimeout(300);
-
-    // Extract chat history
-    const messages = await extractActiveThreadMessages(page);
     const eligibility = evaluateThreadEligibility(messages);
-
     if (!eligibility.eligible || !eligibility.lastIncomingMessage) {
+      const tail = messages
+        .slice(-4)
+        .map((m) => `${m.direction}@${m.align === undefined ? '?' : m.align.toFixed(2)}`)
+        .join(',');
+      scanLog(
+        threadHash,
+        `skip=INELIGIBLE rows=${messages.length} reason=${(eligibility.reason ?? '').split(':')[0]} last=[${tail}]`,
+      );
       continue;
     }
 
@@ -164,6 +334,7 @@ export async function scanMessageRequests(
 
     // Check duplication in SQLite
     if (store.isDuplicateMessage(threadHash, lastMessageHash)) {
+      scanLog(threadHash, 'skip=DUPLICATE_ALREADY_PROCESSED');
       continue;
     }
 
@@ -171,7 +342,7 @@ export async function scanMessageRequests(
       event: 'THREAD_DETECTED',
       threadHash,
       details: {
-        step: 'UNREAD_MESSAGE_DETECTED',
+        step: candidate.unread ? 'UNREAD_MESSAGE_DETECTED' : 'READ_THREAD_INCLUDED',
         messageCount: messages.length,
       },
     });
@@ -185,7 +356,7 @@ export async function scanMessageRequests(
     });
 
     scanned.push({
-      threadId: rawId,
+      threadId,
       threadHash,
       senderIdHash,
       lastMessageHash,
@@ -198,59 +369,23 @@ export async function scanMessageRequests(
 }
 
 /**
- * Finds the thread item matching expectedThreadId with strict equality,
- * activates it via click if not active, and verifies that the thread is currently
- * the single active focused thread in the Messenger UI before any message send.
+ * Activates the conversation for `expectedThreadId` (exact id match) and verifies that it is
+ * the single active conversation (`aria-current`) before any message send.
  */
 export async function selectAndVerifyActiveThread(
   page: Page,
   expectedThreadId: string,
 ): Promise<boolean> {
-  const selector = MEN_SELECTOR_ARRAY(MESSENGER_SELECTORS.threadItem);
-  const threadElements = await page.$$(selector);
-
-  let targetEl: (typeof threadElements)[0] | null = null;
-
-  for (const el of threadElements) {
-    const rawId =
-      (await el.getAttribute('id')) ||
-      (await el.getAttribute('aria-label')) ||
-      '';
-
-    if (rawId === expectedThreadId) {
-      targetEl = el;
-      break;
-    }
-  }
-
-  if (!targetEl) {
+  const links = await readThreadLinks(page);
+  const target = links.find((l) => l.threadId === expectedThreadId);
+  if (!target) {
     return false;
   }
 
-  // Check if target is already active
-  const isCurrentlyActive = await targetEl.evaluate((el) => {
-    return el.classList.contains('active') || el.getAttribute('aria-selected') === 'true';
-  });
-
-  if (!isCurrentlyActive) {
-    await targetEl.click().catch(() => {});
-    await page.waitForTimeout(300);
+  if (!target.current) {
+    await clickThreadLink(page, expectedThreadId);
   }
 
-  // Re-verify: Query currently active thread item in DOM and ensure exact match with expectedThreadId
-  const activeElements = await page.$$(
-    '.thread-item.active, div[data-testid="messenger-chat-list-item"].active, div[role="listitem"][aria-selected="true"]',
-  );
-
-  for (const activeEl of activeElements) {
-    const activeId =
-      (await activeEl.getAttribute('id')) ||
-      (await activeEl.getAttribute('aria-label')) ||
-      '';
-    if (activeId === expectedThreadId) {
-      return true;
-    }
-  }
-
-  return false;
+  // Re-verify against the live DOM: exactly one active conversation, and it is the target.
+  return waitUntilActive(page, expectedThreadId, 12);
 }

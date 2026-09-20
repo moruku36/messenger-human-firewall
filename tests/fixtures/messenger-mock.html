@@ -9,7 +9,7 @@
     #tabs { display: flex; background: #f0f2f5; padding: 8px; }
     .tab { margin-right: 8px; cursor: pointer; text-decoration: none; color: #333; }
     #thread-list { flex: 1; overflow-y: auto; }
-    .thread-item { padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+    .thread-item { color: inherit; text-decoration: none; padding: 12px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
     .thread-item.active { background: #e7f3ff; }
     .unread-badge { background: #1877f2; color: #fff; border-radius: 50%; width: 12px; height: 12px; display: inline-block; }
     #chat-area { flex: 1; display: flex; flex-direction: column; }
@@ -17,6 +17,8 @@
     .message-row { margin-bottom: 8px; display: flex; }
     .incoming { justify-content: flex-start; }
     .incoming .bubble { background: #e4e6eb; color: #050505; border-radius: 18px; padding: 8px 12px; max-width: 60%; }
+    .center { justify-content: center; }
+    .center .bubble { color: #65676b; font-size: 12px; padding: 4px 8px; }
     .outgoing { justify-content: flex-end; }
     .outgoing .bubble { background: #0084ff; color: #fff; border-radius: 18px; padding: 8px 12px; max-width: 60%; }
     #input-container { display: flex; padding: 12px; border-top: 1px solid #ccc; align-items: center; }
@@ -25,48 +27,71 @@
   </style>
 </head>
 <body>
+  <!--
+    Structure mirrors the REAL messenger.com DOM (verified Sept 2026):
+    - conversations are <a role="link" href="/t/<id>"> inside list rows, active one has aria-current
+    - no data-testid attributes, message rows carry no direction marker (left = incoming, right = outgoing)
+    - composer is a contenteditable role=textbox labelled "<name>に書く"
+  -->
   <div id="sidebar">
     <div id="tabs" role="tablist">
       <a href="#inbox" role="tab" aria-label="Inbox">受信トレイ</a>
       <a href="#requests" role="tab" aria-label="Message requests" class="active">メッセージリクエスト</a>
     </div>
 
-    <div id="thread-list" role="list">
+    <div id="thread-list" role="grid" aria-label="リクエスト">
       <!-- Thread 1: Unread message from stranger (Eligible for AI Receptionist/TimeWaster) -->
-      <div id="thread-1" class="thread-item active" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger A とのチャット">
-        <div class="thread-info">
-          <strong>Stranger A</strong>
-          <p class="snippet">怪しい副業の案件に興味ありませんか？</p>
-        </div>
-        <span class="unread-badge" aria-label="未読メッセージ"></span>
+      <div role="row">
+        <a id="link-thread-1" class="thread-item active" role="link" href="/requests/t/thread-1/" aria-label="Stranger A" aria-current="page" tabindex="0" target="_self">
+          <div class="thread-info">
+            <strong>Stranger A</strong>
+            <p class="snippet">怪しい副業の案件に興味ありませんか？</p>
+          </div>
+          <span class="unread-badge" aria-label="未読メッセージ"></span>
+        </a>
       </div>
 
       <!-- Thread 2: Read thread (Not eligible for unread scan) -->
-      <div id="thread-2" class="thread-item" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger B とのチャット">
-        <div class="thread-info">
-          <strong>Stranger B</strong>
-          <p class="snippet">既読のメッセージ</p>
-        </div>
+      <div role="row">
+        <a id="link-thread-2" class="thread-item" role="link" href="/requests/t/thread-2/" aria-label="Stranger B" tabindex="0" target="_self">
+          <div class="thread-info">
+            <strong>Stranger B</strong>
+            <p class="snippet">既読のメッセージ</p>
+          </div>
+        </a>
       </div>
 
       <!-- Thread 3: Thread where LAST message is outgoing (Self-replied, must NOT trigger bot reply) -->
-      <div id="thread-3" class="thread-item" role="listitem" data-testid="messenger-chat-list-item" aria-label="Stranger C とのチャット">
-        <div class="thread-info">
-          <strong>Stranger C</strong>
-          <p class="snippet">あなたが送信: こんにちは</p>
-        </div>
-        <span class="unread-badge" aria-label="未読メッセージ"></span>
+      <div role="row">
+        <a id="link-thread-3" class="thread-item" role="link" href="/e2ee/t/thread-3" aria-label="Stranger C" tabindex="0" target="_self">
+          <div class="thread-info">
+            <strong>Stranger C</strong>
+            <p class="snippet">こんにちは</p>
+          </div>
+          <span class="unread-badge" aria-label="未読メッセージ"></span>
+        </a>
+      </div>
+
+      <!-- Thread 4: Thread whose LAST row is a centered notice (direction ambiguous, must NOT trigger reply) -->
+      <div role="row">
+        <a id="link-thread-4" class="thread-item" role="link" href="/requests/t/thread-4/" aria-label="Stranger D" tabindex="0" target="_self">
+          <div class="thread-info">
+            <strong>Stranger D</strong>
+            <p class="snippet">通知</p>
+          </div>
+          <span class="unread-badge" aria-label="未読メッセージ"></span>
+        </a>
       </div>
     </div>
   </div>
 
   <div id="chat-area">
-    <div id="messages" role="grid">
+    <div id="messages" role="grid" aria-label="会話のメッセージ">
       <!-- Chat history for active thread (Thread 1) -->
-      <div class="message-row incoming" role="row" data-testid="incoming_message">
+      <div class="message-row incoming" role="row">
         <div class="bubble" dir="auto">はじめまして！突然のDM失礼します。</div>
       </div>
-      <div class="message-row incoming" role="row" data-testid="incoming_message">
+      <div class="message-row incoming" role="row">
         <div class="bubble" dir="auto">月30万円稼げる副業の案件に興味ありませんか？詳細はこちら https://scam.example.com</div>
       </div>
     </div>
@@ -76,14 +101,14 @@
         id="message-box"
         role="textbox"
         contenteditable="true"
-        aria-label="メッセージを入力"
+        aria-label="Stranger Aに書く"
         aria-multiline="true"
+        data-lexical-editor="true"
       ></div>
       <div
         id="send-btn"
         role="button"
         aria-label="送信"
-        data-testid="send_button"
         tabindex="0"
       >送信</div>
     </div>
@@ -100,61 +125,57 @@
       ],
       'thread-3': [
         { dir: 'incoming', text: '何かご質問はありますか？' },
-        { dir: 'outgoing', text: 'あなたが送信: こんにちは、検討します。' }
+        { dir: 'outgoing', text: 'こんにちは、検討します。' }
+      ],
+      'thread-4': [
+        { dir: 'incoming', text: '営業の件でご連絡しました。' },
+        { dir: 'center', text: '不在着信' }
       ]
     };
 
-    document.querySelectorAll('.thread-item').forEach(el => {
-      el.addEventListener('click', () => {
-        document.querySelectorAll('.thread-item').forEach(t => t.classList.remove('active'));
-        el.classList.add('active');
-
-        const tid = el.id;
-        const msgs = threadData[tid] || [];
-        const msgContainer = document.getElementById('messages');
-        msgContainer.innerHTML = '';
-
-        msgs.forEach(m => {
-          const row = document.createElement('div');
-          row.className = 'message-row ' + m.dir;
-          row.setAttribute('role', 'row');
-          row.setAttribute('data-testid', m.dir === 'outgoing' ? 'outgoing_message' : 'incoming_message');
-          if (m.dir === 'outgoing') {
-            row.setAttribute('aria-label', 'あなたが送信');
-          }
-
-          const bubble = document.createElement('div');
-          bubble.className = 'bubble';
-          bubble.setAttribute('dir', 'auto');
-          bubble.textContent = m.text;
-
-          row.appendChild(bubble);
-          msgContainer.appendChild(row);
-        });
-      });
-    });
-
-    // Send button click simulation
-    document.getElementById('send-btn').addEventListener('click', () => {
-      const box = document.getElementById('message-box');
-      const text = box.innerText.trim() || box.textContent.trim();
-      if (!text) return;
-
+    function appendRow(dir, text) {
       const msgContainer = document.getElementById('messages');
       const row = document.createElement('div');
-      row.className = 'message-row outgoing';
+      row.className = 'message-row ' + dir;
       row.setAttribute('role', 'row');
-      row.setAttribute('data-testid', 'outgoing_message');
-      row.setAttribute('aria-label', 'あなたが送信');
-
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
       bubble.setAttribute('dir', 'auto');
       bubble.textContent = text;
-
       row.appendChild(bubble);
       msgContainer.appendChild(row);
+    }
+
+    document.querySelectorAll('a.thread-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        document.querySelectorAll('a.thread-item').forEach(t => {
+          t.classList.remove('active');
+          t.removeAttribute('aria-current');
+        });
+        el.classList.add('active');
+        el.setAttribute('aria-current', 'page');
+
+        const tid = el.id.replace('link-', '');
+        document.getElementById('messages').innerHTML = '';
+        (threadData[tid] || []).forEach(m => appendRow(m.dir, m.text));
+      });
+    });
+
+    // Send button click simulation
+    function sendFromBox() {
+      const box = document.getElementById('message-box');
+      const text = box.innerText.trim() || box.textContent.trim();
+      if (!text) return;
+      appendRow('outgoing', text);
       box.innerText = '';
+    }
+    document.getElementById('send-btn').addEventListener('click', sendFromBox);
+    document.getElementById('message-box').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        sendFromBox();
+      }
     });
   </script>
 </body>

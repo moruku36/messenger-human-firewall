@@ -88,7 +88,7 @@
 
 5. **Controlled Send Gate (`src/core/pipeline.ts`, `src/core/controlled-limiter.ts`, `src/channels/messenger/sender.ts`)**:
    - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しない）。
-   - スレッドID完全一致およびクリック後の DOM `.active` 要素再検証。
+   - スレッドID（会話URLの `/t/<id>`）の完全一致、およびクリック後に対象リンクだけが `aria-current` を持つことの再検証。
    - 1スレッド累計最大 `CONTROLLED_MAX_REPLIES`（デフォルト3）通、24時間ローリング最大 `MAX_REPLIES_PER_THREAD_PER_DAY`（デフォルト20）通、1日最大 `MAX_LLM_REQUESTS_PER_DAY`（デフォルト100）回のLLMリクエスト、15秒送信インターバル、緊急停止（Kill Switch）を強制。
 
 ---
