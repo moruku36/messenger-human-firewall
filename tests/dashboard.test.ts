@@ -37,7 +37,7 @@ describe('Phase 7: Local Dashboard Server (localhost)', () => {
     const html = await res.text();
     expect(html).toContain('Messenger Human Firewall Dashboard');
     expect(html).toContain('Reply Target');
-    expect(html).toContain('All eligible Message Requests');
+    expect(html).toContain('Allowlist bypass (composer still required)');
   });
 
   it('returns system status JSON on GET /api/status', async () => {
