@@ -83,9 +83,9 @@
 <text x="1315" y="716" font-size="14" fill="#b91c1c" font-weight="bold" text-anchor="middle">危険検知 → REPLY_BLOCKED（送信中止）</text>
 <rect x="1540" y="545" width="315" height="200" rx="14" fill="#eff6ff" stroke="#0ea5e9" stroke-width="2"/>
 <text x="1697" y="575" font-size="18" fill="#0369a1" font-weight="bold" text-anchor="middle">⑤ Controlled Send Gate</text>
-<text x="1556" y="601" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・ALLOWED_TEST_THREAD_ID 完全一致</text>
-<text x="1556" y="621" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・DOM再検証（アクティブスレッド）</text>
-<text x="1556" y="641" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・累計3返信/スレッド・24h上限</text>
+<text x="1556" y="601" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・Scope: test_thread_only / all_threads</text>
+<text x="1556" y="621" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・test_thread_only: ALLOWED_TEST_THREAD_ID</text>
+<text x="1556" y="641" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・DOM再検証・累計返信上限・24h上限</text>
 <text x="1556" y="661" font-size="13" fill="#1f2937" font-weight="normal" text-anchor="start">・15秒間隔 ・Kill Switch</text>
 <rect x="1556" y="673" width="283" height="26" rx="7" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
 <text x="1697" y="691" font-size="13" fill="#334155" font-weight="bold" text-anchor="middle">DRY_RUN=true → コンソール出力のみ</text>
