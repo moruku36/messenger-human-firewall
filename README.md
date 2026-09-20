@@ -363,7 +363,7 @@ npm run status
 `.env` で `PAUSE_ALL=true` を設定して起動／再起動すると、起動時から停止状態にできます。実行中の watcher を即時停止したい場合は `npm run pause` またはダッシュボードの Kill Switch を使ってください。
 
 ### 5. ローカルダッシュボード (Web UI)
-ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧の閲覧、スレッド単位の手動停止が可能です。
+ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧（`HUMAN REQUIRED` 状態を含む）の閲覧、スレッド単位の手動停止が可能です。
 
 ```bash
 npm run dashboard
