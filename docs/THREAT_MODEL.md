@@ -49,7 +49,7 @@
 - **脅威**: 相手もBotだった場合や大量のリクエストメッセージが連続で届き、自動応答の応酬によってAPI費用が爆発したりアカウント凍結を招く。
 - **対策**:
   - **Thread Reply Cap**: 1スレッドあたりの累計返信数は `CONTROLLED_MAX_REPLIES`（デフォルト3、最大20）で制限され、到達するとスレッドは自動で `paused` になります。加えて `MAX_REPLIES_PER_THREAD_PER_DAY`（デフォルト20）による24時間ローリング上限がありますが、`CONTROLLED_MAX_REPLIES` を引き上げない限り実質的には累計上限が先に効きます。
-  - **Scope Gate**: デフォルトの `AUTO_REPLY_SCOPE=test_thread_only` では、実送信（`DRY_RUN=false`）を `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみに限定します（未設定なら送信しません）。`AUTO_REPLY_SCOPE=all_threads` では許可リストを使わず、Message Requests で検出された適格スレッドが対象になります。
+  - **Scope Gate**: デフォルトの `AUTO_REPLY_SCOPE=test_thread_only` では、実送信（`DRY_RUN=false`）を `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみに限定します（未設定なら送信しません）。`AUTO_REPLY_SCOPE=all_threads` は許可リスト判定だけを外します。現在の watcher が走査する未承認 Message Request には実DOM上返信欄がないため、`all_threads` 自体がそれらを送信可能にするわけではありません。
   - **Global LLM Daily Quota**: 1日あたりのLLM API総呼び出し回数ハードキャップ（`MAX_LLM_REQUESTS_PER_DAY`、デフォルト100回）。上限到達時は人間要対応へエスカレーションし、以後のLLM呼び出しを物理遮断。
   - **Interval**: 最小15秒以上の送信インターバルを強制。
   - 最大返信回数到達後は自動でスレッドを `paused` に遷移。
@@ -58,7 +58,7 @@
 - **脅威**: 既存の友人や仕事関係者の通常会話スレッドに誤ってTime Waster等の自動返信を送ってしまう。
 - **対策**:
   - 監視は「Message Requests」タブへ移動して行います（タブが見つからない場合は `/requests/` へ直接遷移）。ただしスレッド項目セレクタ自体は要求ビューかどうかを検証しないため、通常受信トレイのスレッドを完全に除外することはコード上保証していません。
-  - **デフォルト設定の最終防壁は送信許可リスト**: `AUTO_REPLY_SCOPE=test_thread_only` では `ALLOWED_TEST_THREAD_ID` の完全一致が最終防壁です。`all_threads` ではこの許可リストを使わないため、Message Requests 画面への遷移とアクティブスレッド再検証に依存し、通常受信トレイへの誤遷移リスクをコード上ゼロにはできません。
+  - **デフォルト設定の最終防壁は送信許可リスト**: `AUTO_REPLY_SCOPE=test_thread_only` では `ALLOWED_TEST_THREAD_ID` の完全一致が追加防壁です。`all_threads` ではこの許可リストを使わないため、Message Requests 画面への遷移、アクティブスレッド再検証、返信欄の存在確認に依存します。返信欄がない／送信処理が失敗した場合は Fail-Closed で `HUMAN_REQUIRED` にし、同じ受信メッセージを次回スキャンで再LLM処理しないよう処理済み状態を保存します。
   - 最後のメッセージが相手発信の場合のみトリガー（こちらから新規スレッドを開始する機能はありません）。
 
 ### 2.8 Unexpected DOM Change & Wrong-Thread Send (DOM変更・別スレッド誤送信)
