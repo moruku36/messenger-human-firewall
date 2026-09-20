@@ -264,14 +264,53 @@ async function isOnlyActiveThread(page: Page, threadId: string): Promise<boolean
   return active.length === 1 && active[0].threadId === threadId;
 }
 
-/** Clicks the link for `threadId`. Returns false if no such link exists in the list. */
+/**
+ * Scrolls the (virtualised) conversation list: to the top, or one page down.
+ * Returns false when there is no scrollable list or it cannot move any further.
+ */
+async function scrollThreadList(page: Page, mode: 'top' | 'down'): Promise<boolean> {
+  return page.evaluate(
+    ({ threadSel, mode: m }) => {
+      let el: HTMLElement | null = document.querySelector(threadSel);
+      while (el) {
+        el = el.parentElement;
+        if (!el) break;
+        const overflowY = getComputedStyle(el).overflowY;
+        if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) break;
+      }
+      if (!el) return false;
+      const before = el.scrollTop;
+      if (m === 'top') el.scrollTop = 0;
+      else el.scrollTop = before + Math.max(el.clientHeight * 0.8, 50);
+      return el.scrollTop !== before;
+    },
+    { threadSel: joinSelectors(MESSENGER_SELECTORS.threadItem), mode },
+  );
+}
+
+/**
+ * Clicks the link for `threadId`. The conversation list is virtualised (rows outside the
+ * viewport are not in the DOM), so if the link is missing the list is scrolled to look for it.
+ * Returns false if no such link can be found.
+ */
 async function clickThreadLink(page: Page, threadId: string): Promise<boolean> {
-  const handles = await page.$$(joinSelectors(MESSENGER_SELECTORS.threadItem));
-  for (const handle of handles) {
-    if (threadIdFromHref(await handle.getAttribute('href')) === threadId) {
-      await handle.click().catch(() => {});
+  // Thread ids come from a URL; only plain ids are ever put into a selector.
+  if (!/^[\w-]+$/.test(threadId)) return false;
+  const base = '[role="row"] a[role="link"]';
+  const link = page
+    .locator(`${base}[href*="/t/${threadId}/"], ${base}[href$="/t/${threadId}"], ${base}[href*="/t/${threadId}?"]`)
+    .first();
+  const settle = process.env.NODE_ENV === 'test' ? 60 : 400;
+  for (let step = 0; step < 60; step++) {
+    if ((await link.count()) > 0) {
+      // A locator re-resolves the element, so a re-render while scrolling it into view is fine.
+      await link.click({ timeout: 5000 }).catch(() => {});
       return true;
     }
+    // Not rendered: rewind to the top first, then page down until the end of the list.
+    const moved = await scrollThreadList(page, step === 0 ? 'top' : 'down');
+    if (step > 0 && !moved) break;
+    await page.waitForTimeout(settle);
   }
   return false;
 }
@@ -330,6 +369,9 @@ async function scanCurrentList(
   const config = getConfig();
   const scanned: ScannedThread[] = [];
   // Collect ids first: element handles go stale as the SPA re-renders after each click.
+  // Newest conversations are at the top of the list: start there.
+  await scrollThreadList(page, 'top');
+  await page.waitForTimeout(process.env.NODE_ENV === 'test' ? 60 : 400);
   const allLinks = (await readThreadLinks(page)).filter((l) => !seen.has(l.threadId));
   allLinks.forEach((l) => seen.add(l.threadId));
   const candidates = allLinks.filter((l) => l.unread || config.SCAN_INCLUDE_READ_THREADS);
@@ -427,12 +469,12 @@ export async function selectAndVerifyActiveThread(
 ): Promise<boolean> {
   const links = await readThreadLinks(page);
   const target = links.find((l) => l.threadId === expectedThreadId);
-  if (!target) {
-    return false;
-  }
 
-  if (!target.current) {
-    await clickThreadLink(page, expectedThreadId);
+  if (!target?.current) {
+    // Also covers a row that is currently outside the virtualised viewport.
+    if (!(await clickThreadLink(page, expectedThreadId))) {
+      return false;
+    }
   }
 
   // Re-verify against the live DOM: exactly one active conversation, and it is the target.
