@@ -71,6 +71,7 @@ export async function runWatcherLoop(): Promise<void> {
   console.log(`[Config] LLM Provider  : ${config.LLM_PROVIDER}`);
   console.log(`[Config] Browser Data  : ${config.BROWSER_USER_DATA_DIR}`);
   console.log(`[Config] Poll Interval : ${config.WATCH_POLL_INTERVAL_SECONDS}s`);
+  console.log(`[Config] Reply Scope   : ${config.AUTO_REPLY_SCOPE}`);
   console.log(`[Config] Include Read  : ${config.SCAN_INCLUDE_READ_THREADS}`);
   const jevModeDesc = !config.JEV_ENABLED
     ? 'Disabled'

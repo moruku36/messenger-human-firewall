@@ -246,4 +246,121 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
     expect(result?.finalDecision).toBe('HUMAN_REQUIRED');
     expect(result?.classification.reason).toContain('Daily LLM request quota reached');
   });
+
+  describe('AUTO_REPLY_SCOPE=all_threads (Production Mode)', () => {
+    it('defaults to test_thread_only when AUTO_REPLY_SCOPE is unset', () => {
+      delete process.env.AUTO_REPLY_SCOPE;
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      resetConfigForTest();
+
+      const result = checkControlledReplyEligibility('any-thread-id', 'any-hash', store);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('TARGET_NOT_CONFIGURED');
+    });
+
+    it('allows dispatch to any thread without ALLOWED_TEST_THREAD_ID when AUTO_REPLY_SCOPE=all_threads', () => {
+      process.env.AUTO_REPLY_SCOPE = 'all_threads';
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      process.env.CONTROLLED_MAX_REPLIES = '3';
+      resetConfigForTest();
+
+      const result = checkControlledReplyEligibility('arbitrary-thread-999', 'arbitrary-hash-999', store);
+      expect(result.allowed).toBe(true);
+      expect(result.currentCount).toBe(0);
+      expect(result.maxReplies).toBe(3);
+    });
+
+    it('enforces CONTROLLED_MAX_REPLIES limit per thread in all_threads mode', () => {
+      process.env.AUTO_REPLY_SCOPE = 'all_threads';
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      process.env.CONTROLLED_MAX_REPLIES = '2';
+      resetConfigForTest();
+
+      const threadHash = 'all-threads-limit-test';
+      store.upsertThread({
+        threadId: threadHash,
+        senderIdHash: 'sender-hash',
+        firstSeen: Date.now(),
+        lastSeen: Date.now(),
+        lastMessageHash: 'msg-hash',
+        mode: 'TIME_WASTER',
+        messageCount: 2,
+        replyCount: 2,
+        riskScore: 50,
+        paused: false,
+        humanRequired: false,
+      });
+
+      const result = checkControlledReplyEligibility('any-thread', threadHash, store);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('LIMIT_REACHED');
+      expect(result.currentCount).toBe(2);
+    });
+
+    it('enforces 24-hour rolling limit in all_threads mode', () => {
+      process.env.AUTO_REPLY_SCOPE = 'all_threads';
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      process.env.CONTROLLED_MAX_REPLIES = '10';
+      process.env.MAX_REPLIES_PER_THREAD_PER_DAY = '2';
+      resetConfigForTest();
+
+      const threadHash = 'all-threads-daily-test';
+      const now = Date.now();
+      store.recordReply(threadHash, now - 5000);
+      store.recordReply(threadHash, now - 1000);
+
+      const result = checkControlledReplyEligibility('any-thread', threadHash, store);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('DAILY_LIMIT_REACHED');
+    });
+
+    it('enforces paused thread check in all_threads mode', () => {
+      process.env.AUTO_REPLY_SCOPE = 'all_threads';
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      resetConfigForTest();
+
+      const threadHash = 'all-threads-paused-test';
+      store.upsertThread({
+        threadId: threadHash,
+        senderIdHash: 'sender-hash',
+        firstSeen: Date.now(),
+        lastSeen: Date.now(),
+        lastMessageHash: 'msg-hash',
+        mode: 'TIME_WASTER',
+        messageCount: 1,
+        replyCount: 0,
+        riskScore: 50,
+        paused: true,
+        humanRequired: false,
+      });
+
+      const result = checkControlledReplyEligibility('any-thread', threadHash, store);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('THREAD_PAUSED');
+    });
+
+    it('enforces global killswitch (assertNotPaused) in all_threads mode', async () => {
+      process.env.AUTO_REPLY_SCOPE = 'all_threads';
+      delete process.env.ALLOWED_TEST_THREAD_ID;
+      process.env.DRY_RUN = 'false';
+      resetConfigForTest();
+
+      setSystemPause(true); // Emergency Stop
+
+      const mock = new ControlledMockProvider();
+      const firewall = new HumanFirewallCore(mock, mock);
+      const pipeline = new FirewallPipeline(firewall, store);
+
+      await expect(
+        pipeline.handleIncomingMessage({
+          threadId: 'arbitrary-thread-id',
+          threadHash: computeHash('arbitrary-thread-id'),
+          senderIdHash: computeHash('arbitrary-sender'),
+          lastMessageHash: computeHash('message-under-pause'),
+          incomingText: '案件相談です',
+          page,
+        }),
+      ).rejects.toThrow('PAUSED');
+    });
+  });
 });

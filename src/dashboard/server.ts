@@ -55,6 +55,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}) {
       res.end(JSON.stringify({
         paused,
         dryRun: config.DRY_RUN,
+        autoReplyScope: config.AUTO_REPLY_SCOPE,
         allowedTestThreadId: config.ALLOWED_TEST_THREAD_ID || null,
         maxReplies: config.CONTROLLED_MAX_REPLIES,
         llmProvider: config.LLM_PROVIDER,

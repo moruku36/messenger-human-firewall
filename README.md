@@ -207,7 +207,8 @@ cp .env.example .env
 - `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
 - `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
-- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。未設定の場合、実送信は一切行われません。
+- `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
+- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。未設定の場合、実送信は一切行われません。
 - `SCAN_INCLUDE_READ_THREADS`: `true` にすると未読マークのないリクエストスレッドも処理します（最後のメッセージは1回だけ処理され、ハッシュで重複排除されます）。未読マークの実DOM確認が済むまで、既存スレッドでパイプラインを検証するのに使えます。デフォルトは `false`。
 - `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
 
@@ -314,7 +315,37 @@ npm run dev
 DEBUG=true npm run dev
 ```
 
-### 3. 緊急停止 (Kill Switch)
+### 3. 実送信モードの切り替え (Controlled Testing & Production Auto-Reply)
+
+デフォルトでは安全のため `DRY_RUN=true` かつ `AUTO_REPLY_SCOPE=test_thread_only` に設定されています。
+
+#### A. 単一テストスレッドでの検証 (Controlled Testing)
+特定の指定スレッドのみに実送信を許可する検証モードです：
+```bash
+DRY_RUN=false
+AUTO_REPLY_SCOPE=test_thread_only
+ALLOWED_TEST_THREAD_ID="your_test_thread_id_or_hash"
+```
+
+#### B. 全スレッド対象の本番自動返信モード (Production All-Threads Mode)
+届いた未読メッセージリクエスト全般に対して自動返信を有効化するモードです：
+```bash
+DRY_RUN=false
+AUTO_REPLY_SCOPE=all_threads
+```
+
+> [!WARNING]
+> **本番開放時の重要注意事項**:
+> - `AUTO_REPLY_SCOPE=all_threads` かつ `DRY_RUN=false` の組み合わせ時のみ、届いたすべての未読メッセージリクエストに対して自動返信が実行されます。
+> - `all_threads` に設定した場合でも、既存の安全機構（`CONTROLLED_MAX_REPLIES`、24時間上限 `MAX_REPLIES_PER_THREAD_PER_DAY`、最小間隔 `MIN_REPLY_INTERVAL_SECONDS`、Reply Guard、LLM日次上限 `MAX_LLM_REQUESTS_PER_DAY`、`HUMAN_REQUIRED` 分岐、重複検知、Kill Switch）は**全て機能し続けます**。
+> - Metaの利用規約や自動化ポリシー違反によるアカウント制限・一時BANのリスクを十分に理解した上で設定してください。詳細は [SECURITY.md](SECURITY.md) を参照してください。
+
+#### ロールバック手順 (Rollback)
+万が一の誤送信懸念やアカウント制限リスクを感じた場合、直ちに以下のいずれかで安全側に復旧できます：
+1. **即時安全側への復帰**: `.env` で `AUTO_REPLY_SCOPE=test_thread_only`（または `DRY_RUN=true`）に変更して再起動します。`ALLOWED_TEST_THREAD_ID` に一致しない全スレッドへの送信が即時に遮断されます。
+2. **緊急停止 (Kill Switch)**: `npm run pause` を実行するか、`.env` に `PAUSE_ALL=true` を設定することで、プロセス再起動不要でミリ秒単位で全メッセージ送信を強制停止できます。
+
+### 4. 緊急停止 (Kill Switch)
 
 ```bash
 # システムの即時停止 (返信と監視をブロック)
@@ -329,7 +360,7 @@ npm run status
 
 `.env` で `PAUSE_ALL=true` を設定することでも即時停止可能です。
 
-### 4. ローカルダッシュボード (Web UI)
+### 5. ローカルダッシュボード (Web UI)
 ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧の閲覧、スレッド単位の手動停止が可能です。
 
 ```bash
@@ -337,7 +368,7 @@ npm run dashboard
 # ブラウザで http://localhost:3000 にアクセス（ポートは `.env` の `PORT` で変更可能）
 ```
 
-### 5. テストの実行
+### 6. テストの実行
 
 ```bash
 # 単体・結合テストの実行
