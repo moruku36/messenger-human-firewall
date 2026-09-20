@@ -36,6 +36,8 @@ describe('Phase 7: Local Dashboard Server (localhost)', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
     const html = await res.text();
     expect(html).toContain('Messenger Human Firewall Dashboard');
+    expect(html).toContain('Reply Target');
+    expect(html).toContain('All eligible Message Requests');
   });
 
   it('returns system status JSON on GET /api/status', async () => {
@@ -45,6 +47,7 @@ describe('Phase 7: Local Dashboard Server (localhost)', () => {
     expect(data.paused).toBe(false);
     expect(data.dryRun).toBeDefined();
     expect(data.maxReplies).toBeDefined();
+    expect(data.autoReplyScope).toBeDefined();
   });
 
   it('toggles global Kill Switch via POST /api/killswitch', async () => {
