@@ -123,7 +123,7 @@
       <div id="modeVal" class="card-value">...</div>
     </div>
     <div class="card">
-      <div class="card-title">Allowed Test Thread</div>
+      <div class="card-title">Reply Target</div>
       <div id="threadTargetVal" class="card-value" style="font-size: 16px; word-break: break-all;">...</div>
     </div>
     <div class="card">
@@ -170,8 +170,10 @@
         btn.className = 'btn btn-danger';
       }
 
-      document.getElementById('modeVal').textContent = data.dryRun ? 'DRY_RUN (Console only)' : 'CONTROLLED_REPLY (Live)';
-      document.getElementById('threadTargetVal').textContent = data.allowedTestThreadId || 'None (All sends blocked)';
+      document.getElementById('modeVal').textContent = `${data.dryRun ? 'DRY_RUN (Console only)' : 'LIVE'} / ${data.autoReplyScope}`;
+      document.getElementById('threadTargetVal').textContent = data.autoReplyScope === 'all_threads'
+        ? 'All eligible Message Requests'
+        : (data.allowedTestThreadId || 'None (All live sends blocked)');
     }
 
     async function toggleKillSwitch() {
