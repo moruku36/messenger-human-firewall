@@ -11,8 +11,9 @@ export interface ControlledLimitResult {
 /**
  * Checks whether a live reply can be safely dispatched to the specified thread.
  * Enforces:
- * 1. Thread scope gate: ALLOWED_TEST_THREAD_ID in test_thread_only mode, or all eligible
- *    Message Requests in all_threads mode
+ * 1. Thread scope gate: ALLOWED_TEST_THREAD_ID in test_thread_only mode, or bypass the
+ *    allowlist in all_threads mode. Actual dispatch still requires a sendable Messenger
+ *    page/composer and is enforced separately by sender.ts.
  * 2. Maximum reply limit per thread (default 3 replies)
  * 3. Daily reply limit (24 hours)
  * 4. Thread paused state
