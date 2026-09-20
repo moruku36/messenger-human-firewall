@@ -37,7 +37,7 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 ## 処理パイプライン (Current Architecture)
 
 <p align="center">
-  <img src="docs/assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
+  <img src="docs/assets/architecture.svg" alt="Messenger Human Firewall 構成図" width="100%">
 </p>
 
 ### フローチャート (Pipeline Flowchart)
@@ -169,7 +169,8 @@ flowchart TD
 4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
 5. **多層レートリミット & コスト防護**:
    - 誤スレッド送信の二重検証（クリック後にアクティブスレッドを再検証）
-   - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しません）
+   - デフォルトの `AUTO_REPLY_SCOPE=test_thread_only` では、実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しません）
+   - `AUTO_REPLY_SCOPE=all_threads` では許可リストを使わず、Message Requests で検出された適格スレッドが送信対象になります（各種上限・Reply Guard・Kill Switch は引き続き適用）
    - 1スレッド累計最大3返信制限（`CONTROLLED_MAX_REPLIES`、最大20まで設定可。到達でスレッド自動 pause）
    - 24時間ローリング送信上限（`MAX_REPLIES_PER_THREAD_PER_DAY`、デフォルト20返信/スレッド。`CONTROLLED_MAX_REPLIES` を引き上げない限り累計上限が先に効きます）
    - Jev / Gemini 共通の日次AIリクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回。Shadow Mode では Gemini と Jev の両方が消費します）
@@ -208,7 +209,7 @@ cp .env.example .env
 - `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
 - `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
-- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。未設定の場合、実送信は一切行われません。
+- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。`AUTO_REPLY_SCOPE=test_thread_only` では未設定の場合、実送信は一切行われません。`all_threads` ではこの値は参照されません。
 - `SCAN_INCLUDE_READ_THREADS`: `true` にすると未読マークのないリクエストスレッドも処理します（最後のメッセージは1回だけ処理され、ハッシュで重複排除されます）。未読マークの実DOM確認が済むまで、既存スレッドでパイプラインを検証するのに使えます。デフォルトは `false`。
 - `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
 
@@ -343,7 +344,7 @@ AUTO_REPLY_SCOPE=all_threads
 #### ロールバック手順 (Rollback)
 万が一の誤送信懸念やアカウント制限リスクを感じた場合、直ちに以下のいずれかで安全側に復旧できます：
 1. **即時安全側への復帰**: `.env` で `AUTO_REPLY_SCOPE=test_thread_only`（または `DRY_RUN=true`）に変更して再起動します。`ALLOWED_TEST_THREAD_ID` に一致しない全スレッドへの送信が即時に遮断されます。
-2. **緊急停止 (Kill Switch)**: `npm run pause` を実行するか、`.env` に `PAUSE_ALL=true` を設定することで、プロセス再起動不要でミリ秒単位で全メッセージ送信を強制停止できます。
+2. **緊急停止 (Kill Switch)**: 実行中プロセスを即時停止する場合は `npm run pause`（またはダッシュボードの Kill Switch）を使います。`.env` の `PAUSE_ALL=true` は起動時設定なので、変更後に watcher の再起動が必要です。
 
 ### 4. 緊急停止 (Kill Switch)
 
@@ -358,7 +359,7 @@ npm run resume
 npm run status
 ```
 
-`.env` で `PAUSE_ALL=true` を設定することでも即時停止可能です。
+`.env` で `PAUSE_ALL=true` を設定して起動／再起動すると、起動時から停止状態にできます。実行中の watcher を即時停止したい場合は `npm run pause` またはダッシュボードの Kill Switch を使ってください。
 
 ### 5. ローカルダッシュボード (Web UI)
 ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧の閲覧、スレッド単位の手動停止が可能です。
@@ -425,7 +426,7 @@ npm run lint
 
 本プロジェクトでは、安全性およびプライバシー保護の観点から以下の機能を明示的にスコープ外（Non-goals）としています：
 
-- **友人・既存連絡先への自動返信**: 監視対象はメッセージリクエストです（リンクは `[role="row"]` 内の `/requests/t/<id>/` 等から取得）。実送信は `ALLOWED_TEST_THREAD_ID` に一致する単一スレッドに限定されます。通常受信トレイの既知のスレッドへの誤送信を防ぐ最終防壁はこの許可リストです。
+- **友人・既存連絡先への自動返信**: 監視対象はメッセージリクエストです（リンクは `[role="row"]` 内の `/requests/t/<id>/` 等から取得）。デフォルトの `test_thread_only` では `ALLOWED_TEST_THREAD_ID` が追加の最終防壁になります。`all_threads` ではこの許可リストを使わないため、Message Requests 以外へ誤遷移しないことを事前に `DRY_RUN=true` で確認する必要があります。
 - **CAPTCHA・MFA・ボット検知の回避**: Metaのセキュリティ機構を迂回する機能は実装しません。ログインや二要素認証はユーザー本人が手動ブラウザで行います。
 - **能動的な新規DM送信・営業自動化**: 相手から受信したメッセージへの防壁・応答に限定し、自分から新規スレッドを開始する営業・送信機能は提供しません。
 - **本人になりすました合意・意思決定**: 所有者の意見代弁、契約締結、面会受諾、金銭授受の約束は行いません。
