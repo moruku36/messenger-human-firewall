@@ -205,7 +205,7 @@ cp .env.example .env
 > `@typesafe-ai/sdk` はレジストリからは取得できないため、`typesafe-ai-sdk-0.6.0.tgz` をリポジトリに同梱し、`package.json` / `package-lock.json` の両方で `file:typesafe-ai-sdk-0.6.0.tgz` として固定しています。通常は上記の `npm install` / CIの `npm ci` だけで追加作業は不要です。
 
 `.env` に必要な項目を設定します：
-- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
+- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（Active Mode の本番トリアージ、または Shadow Mode の比較評価に使用）
 - `GEMINI_API_KEY`: Google Gemini API Key（Active Jev Mode では返信文生成用。Legacy / Shadow Mode ではトリアージにも使用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
 - `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
