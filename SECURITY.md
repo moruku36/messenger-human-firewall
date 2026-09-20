@@ -25,9 +25,9 @@ We will acknowledge your report within 48 hours and work with you on an expedite
    - In the default `AUTO_REPLY_SCOPE=test_thread_only` mode, live dispatch (`DRY_RUN=false`) is limited to the thread matching `ALLOWED_TEST_THREAD_ID`. In `all_threads` mode, only that allowlist check is bypassed. The current watcher scans Message Requests, and verified unaccepted request pages have no composer; `all_threads` does not auto-accept requests or make them sendable.
    - Live dispatch should always be preceded by testing in `DRY_RUN=true` mode.
 
-4. **Risks of Full Auto-Reply Scope (`AUTO_REPLY_SCOPE=all_threads`)**:
+4. **Risks of Allowlist-Bypass Scope (`AUTO_REPLY_SCOPE=all_threads`)**:
    - **Platform Automation Policy Violation & Account Restriction (BAN Risk)**:
-     Meta prohibits unauthorized automated interactions on Facebook Messenger. Enabling full auto-reply across all threads significantly increases the likelihood of automated bot detection, temporary messaging bans, checkpoint verification, or permanent account termination.
+     Meta may restrict unauthorized automated interactions on Facebook Messenger. If `all_threads` is used in a sendable Messenger view, removing the per-thread allowlist can increase automation exposure and the risk of checkpoints, messaging restrictions, or account action.
    - **Reduced Human Visibility of Misclassifications**:
      While `HumanFirewallCore` deterministically routes high-risk or ambiguous requests to `HUMAN_REQUIRED`, edge cases in classification or LLM hallucinations can occur. If `all_threads` is used on a sendable Messenger view, the per-thread allowlist is no longer present, reducing operator visibility compared with `test_thread_only`. Unaccepted Message Requests themselves remain unsendable because no composer is present.
    - **Mechanical Engagement with Impersonators & Adversaries**:
