@@ -247,6 +247,33 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
     expect(result?.classification.reason).toContain('Daily LLM request quota reached');
   });
 
+  it('never dispatches to a message-request thread (no composer, accept required)', async () => {
+    const targetThreadId = 'thread-1';
+    const targetHash = computeHash(targetThreadId);
+    process.env.DRY_RUN = 'false';
+    process.env.AUTO_REPLY_SCOPE = 'all_threads';
+    process.env.MIN_REPLY_INTERVAL_SECONDS = '1';
+    resetConfigForTest();
+
+    const mock = new ControlledMockProvider();
+    const pipeline = new FirewallPipeline(new HumanFirewallCore(mock, mock), store);
+    const before = await extractActiveThreadMessages(page);
+
+    const result = await pipeline.handleIncomingMessage({
+      threadId: targetThreadId,
+      threadHash: targetHash,
+      senderIdHash: computeHash('sender-1'),
+      lastMessageHash: computeHash('Incoming request'),
+      incomingText: '案件のご案内です',
+      isRequestThread: true,
+      page,
+    });
+
+    expect(result?.finalDecision).toBe('SEND_ALLOWED');
+    expect(store.getThread(targetHash)?.replyCount).toBe(0);
+    expect(await extractActiveThreadMessages(page)).toHaveLength(before.length);
+  });
+
   describe('AUTO_REPLY_SCOPE=all_threads (Production Mode)', () => {
     it('defaults to test_thread_only when AUTO_REPLY_SCOPE is unset', () => {
       delete process.env.AUTO_REPLY_SCOPE;

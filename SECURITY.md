@@ -26,6 +26,7 @@ We will acknowledge your report within 48 hours and work with you on an expedite
    - Live dispatch should always be preceded by testing in `DRY_RUN=true` mode.
 
 4. **Risks of Full Auto-Reply Scope (`AUTO_REPLY_SCOPE=all_threads`)**:
+   - Note: message-request threads have no composer (replying requires accepting the request, which this tool never does), so they are triage-only in every scope. The risks below apply to threads that do have a composer.
    - **Platform Automation Policy Violation & Account Restriction (BAN Risk)**:
      Meta prohibits unauthorized automated interactions on Facebook Messenger. Enabling full auto-reply across all threads significantly increases the likelihood of automated bot detection, temporary messaging bans, checkpoint verification, or permanent account termination.
    - **Reduced Human Visibility of Misclassifications**:

@@ -28,6 +28,7 @@ describe('Browser Watcher with Fake Messenger HTML Fixture', () => {
   });
 
   afterEach(() => {
+    delete process.env.SCAN_SPAM_TAB;
     delete process.env.SCAN_INCLUDE_READ_THREADS;
     resetConfigForTest();
   });
@@ -154,12 +155,81 @@ describe('Browser Watcher with Fake Messenger HTML Fixture', () => {
         <div role="article" style="width:800px"><span dir="auto" style="display:block;width:200px;margin:0 auto">中央寄りの受信メッセージ</span></div>
       </div></div>`;
     await page.route('https://www.messenger.com/requests/t/1/', (route) =>
-      route.fulfill({ contentType: 'text/html', body }),
+      route.fulfill({ contentType: 'text/html; charset=utf-8', body }),
     );
     await page.goto('https://www.messenger.com/requests/t/1/');
     const messages = await extractActiveThreadMessages(page);
     expect(messages).toHaveLength(1);
     expect(messages[0].direction).toBe('incoming');
+  });
+
+  const requestsPageHtml = `
+    <div role="tablist">
+      <div role="tab" id="tab-known" aria-selected="true">知り合いかも</div>
+      <div role="tab" id="tab-spam" aria-selected="false">スパム</div>
+    </div>
+    <div role="grid" id="list"></div>
+    <div role="main"><div role="log" id="log" style="width:800px"></div></div>
+    <script>
+      const data = { 'tab-known': [['a1', '知り合いタブのメッセージ']], 'tab-spam': [['b1', 'スパムタブのメッセージ']] };
+      let tab = 'tab-known';
+      const list = document.getElementById('list');
+      const log = document.getElementById('log');
+      function render() {
+        list.innerHTML = '';
+        data[tab].forEach(([id, txt]) => {
+          const row = document.createElement('div');
+          row.setAttribute('role', 'row');
+          const a = document.createElement('a');
+          a.setAttribute('role', 'link');
+          a.setAttribute('href', '/requests/t/' + id + '/');
+          a.textContent = id;
+          a.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.querySelectorAll('a[role=link]').forEach((x) => x.removeAttribute('aria-current'));
+            a.setAttribute('aria-current', 'page');
+            log.innerHTML = '<div role="article" style="width:800px"><span dir="auto" style="display:inline-block;width:200px">' + txt + '</span></div>';
+            history.replaceState({}, '', '/requests/t/' + id + '/');
+          });
+          row.appendChild(a);
+          list.appendChild(row);
+        });
+      }
+      document.querySelectorAll('[role=tab]').forEach((t) => t.addEventListener('click', () => {
+        document.querySelectorAll('[role=tab]').forEach((x) => x.setAttribute('aria-selected', 'false'));
+        t.setAttribute('aria-selected', 'true');
+        tab = t.id;
+        log.innerHTML = '';
+        render();
+      }));
+      render();
+    </script>`;
+
+  async function openRequestsPage(): Promise<void> {
+    await page.route('https://www.messenger.com/requests/', (route) =>
+      route.fulfill({ contentType: 'text/html; charset=utf-8', body: requestsPageHtml }),
+    );
+    await page.goto('https://www.messenger.com/requests/');
+  }
+
+  it('scans both the 知り合いかも and スパム tabs and marks threads as requests', async () => {
+    await openRequestsPage();
+    process.env.SCAN_INCLUDE_READ_THREADS = 'true';
+    resetConfigForTest();
+
+    const results = await scanMessageRequests(page, store);
+    expect(results.map((r) => r.threadId).sort()).toEqual(['a1', 'b1']);
+    expect(results.every((r) => r.isRequest)).toBe(true);
+  });
+
+  it('skips the スパム tab when SCAN_SPAM_TAB=false', async () => {
+    await openRequestsPage();
+    process.env.SCAN_INCLUDE_READ_THREADS = 'true';
+    process.env.SCAN_SPAM_TAB = 'false';
+    resetConfigForTest();
+
+    const results = await scanMessageRequests(page, store);
+    expect(results.map((r) => r.threadId)).toEqual(['a1']);
   });
 
   it('extracts the thread id from /t/<id> and /e2ee/t/<id> hrefs, never from names', () => {

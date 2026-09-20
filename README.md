@@ -207,8 +207,9 @@ cp .env.example .env
 - `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
 - `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
-- `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
+- `AUTO_REPLY_SCOPE`: 実送信の対象スコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）。**いずれの値でも、メッセージリクエストのスレッドには送信しません**（返信欄が無く、承認が必要なため。下記「実送信モードの切り替え」参照）
 - `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。未設定の場合、実送信は一切行われません。
+- `SCAN_SPAM_TAB`: `true`（デフォルト）で、リクエストの「スパム」タブも監視します（多くの見知らぬ相手のメッセージはここに入ります）。スレッドごとにLLMリクエストを消費するため、日次上限 `MAX_LLM_REQUESTS_PER_DAY` に注意してください。
 - `SCAN_INCLUDE_READ_THREADS`: `true` にすると未読マークのないリクエストスレッドも処理します（最後のメッセージは1回だけ処理され、ハッシュで重複排除されます）。未読マークの実DOM確認が済むまで、既存スレッドでパイプラインを検証するのに使えます。デフォルトは `false`。
 - `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
 
@@ -328,7 +329,10 @@ ALLOWED_TEST_THREAD_ID="your_test_thread_id_or_hash"
 ```
 
 #### B. 全スレッド対象の本番自動返信モード (Production All-Threads Mode)
-届いた未読メッセージリクエスト全般に対して自動返信を有効化するモードです：
+`ALLOWED_TEST_THREAD_ID` の制限を外し、**返信欄のあるスレッド**すべてに自動返信を許可するモードです：
+
+> [!IMPORTANT]
+> **メッセージリクエストのスレッドは、このモードでも送信対象外です。** リクエストには返信欄が無く、返信するには相手を「承認」する必要があります（承認すると相手は通話でき、オンライン状況なども相手に見える可能性があります）。本ツールは承認を自動で行わないため、リクエストに対しては検出・判定・返信案の生成（DRY_RUN相当）までを行い、`REQUEST_THREAD_NO_COMPOSER` として送信を見送ります。現状、承認済みのスレッド（受信箱）は監視していないため、`all_threads` で実際に送信される経路は存在しません。
 ```bash
 DRY_RUN=false
 AUTO_REPLY_SCOPE=all_threads
@@ -336,7 +340,7 @@ AUTO_REPLY_SCOPE=all_threads
 
 > [!WARNING]
 > **本番開放時の重要注意事項**:
-> - `AUTO_REPLY_SCOPE=all_threads` かつ `DRY_RUN=false` の組み合わせ時のみ、届いたすべての未読メッセージリクエストに対して自動返信が実行されます。
+> - `AUTO_REPLY_SCOPE=all_threads` かつ `DRY_RUN=false` は、`ALLOWED_TEST_THREAD_ID` による制限を外す設定です。リクエストのスレッドには送信されません（上記参照）。
 > - `all_threads` に設定した場合でも、既存の安全機構（`CONTROLLED_MAX_REPLIES`、24時間上限 `MAX_REPLIES_PER_THREAD_PER_DAY`、最小間隔 `MIN_REPLY_INTERVAL_SECONDS`、Reply Guard、LLM日次上限 `MAX_LLM_REQUESTS_PER_DAY`、`HUMAN_REQUIRED` 分岐、重複検知、Kill Switch）は**全て機能し続けます**。
 > - Metaの利用規約や自動化ポリシー違反によるアカウント制限・一時BANのリスクを十分に理解した上で設定してください。詳細は [SECURITY.md](SECURITY.md) を参照してください。
 
@@ -412,7 +416,7 @@ npm run lint
 - スレッド識別子は会話リンク（`a[role="link"][href="/t/<id>"]`）のURL由来のIDで、相手名（`aria-label`）は使いません。ソルト無しのSHA-256でハッシュ化して保存します。
 - セレクタは実際の messenger.com のDOMで確認した属性（`role` / `href` / `aria-current` / `contenteditable`）に基づきます。ただし次は**実画面で未検証**です: 未読マーク（`SCAN_INCLUDE_READ_THREADS=false` の場合の未読判定）、送信ボタン（Enterキーで送信するフォールバックを使用）、リクエストスレッドに返信欄が表示されるか（承認が必要な可能性）。実送信は、これらを `DRY_RUN=true` で確認するまで有効にしないでください。
 - メッセージの送受信の向きはDOMにマーカーが無いため、吹き出しの水平位置（左＝受信、右＝送信）で判定します。中央寄りの行（日付・システム通知）は「不明」とし、最後の行が不明な場合は返信しません。
-- 監視対象は「リクエスト」の「知り合いかも」タブの一覧です（「スパム」タブは対象外）。メッセージ本文のないスレッド（グループの退出通知、「メッセージを読み込めません」など）は `NO_MESSAGES` としてスキップされます。
+- 監視対象は「リクエスト」の「知り合いかも」タブと「スパム」タブ（`SCAN_SPAM_TAB=false` で「スパム」を除外）の一覧です。メッセージ本文のないスレッド（グループの退出通知、「メッセージを読み込めません」など）は `NO_MESSAGES` としてスキップされます。
 - リクエストのスレッドは、開くと既読になります（相手には通知されません）。
 - Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信は Reply Guard と送信許可リストを通ります。
 - 送信処理が例外で失敗した場合、そのメッセージは処理済みとして記録されず、次のスキャンで再処理されます（日次LLM上限で保護されます）。

@@ -66,6 +66,8 @@ export const ConfigSchema = z.object({
   WATCH_POLL_INTERVAL_SECONDS: PositiveIntSchema(10, 3600, '60'),
   // Also process threads without an unread marker (useful while the real unread marker is unverified)
   SCAN_INCLUDE_READ_THREADS: BooleanStringSchema.default('false'),
+  // Also scan the "スパム / Spam" tab of Message Requests (most stranger messages land there)
+  SCAN_SPAM_TAB: BooleanStringSchema.default('true'),
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;

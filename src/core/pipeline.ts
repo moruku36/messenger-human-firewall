@@ -15,6 +15,11 @@ export interface PipelineExecutionOptions {
   lastMessageHash: string;
   incomingText: string;
   historySummary?: string;
+  /**
+   * True for threads opened from Message Requests. They have no composer (the requester must be
+   * accepted first, which this tool never does), so a reply is never dispatched: triage only.
+   */
+  isRequestThread?: boolean;
   page?: Page;
 }
 
@@ -31,7 +36,8 @@ export class FirewallPipeline {
   public async handleIncomingMessage(
     options: PipelineExecutionOptions,
   ): Promise<FirewallProcessResult | null> {
-    const { threadId, threadHash, senderIdHash, lastMessageHash, incomingText, historySummary, page } = options;
+    const { threadId, threadHash, senderIdHash, lastMessageHash, incomingText, historySummary, page, isRequestThread } =
+      options;
     const config = getConfig();
 
     // 1. Mandatory Kill Switch Gate
@@ -116,7 +122,18 @@ export class FirewallPipeline {
     let actuallySent = false;
     let controlledReason: string | undefined;
 
-    if (!config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED' && result.candidateReply && page) {
+    if (!config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED' && result.candidateReply && isRequestThread) {
+      controlledReason =
+        'REQUEST_THREAD_NO_COMPOSER: Message requests cannot be replied to without accepting them. Triage only; nothing was sent.';
+      logEvent({
+        event: 'RATE_LIMITED',
+        threadHash,
+        details: {
+          blockReason: 'REQUEST_THREAD_NO_COMPOSER',
+          messageCount: replyCount,
+        },
+      });
+    } else if (!config.DRY_RUN && result.finalDecision === 'SEND_ALLOWED' && result.candidateReply && page) {
       const eligibility = checkControlledReplyEligibility(threadId, threadHash, this.store);
 
       if (eligibility.allowed) {
@@ -193,6 +210,10 @@ export class FirewallPipeline {
     console.log(`[Classification] : ${result.classification.category} (Risk: ${result.classification.risk}/100)`);
     console.log(`[Reason Code]    : ${reasonDisplay}`);
     console.log(`[Action Decided] : ${result.classification.action}${result.timeWasterState ? ` (Phase: ${result.timeWasterState})` : ''}`);
+
+    if (options.isRequestThread) {
+      console.log('[Request Thread] : 返信には承認が必要なため送信しません（トリアージ専用）');
+    }
 
     if (result.candidateReply) {
       const replyDisplay = isDebug
