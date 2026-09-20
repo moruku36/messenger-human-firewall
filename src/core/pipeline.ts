@@ -121,20 +121,39 @@ export class FirewallPipeline {
 
       if (eligibility.allowed) {
         assertNotPaused('Controlled Reply Pre-Send');
-        await sendMessageToActiveThread(page, result.candidateReply, threadId);
-        actuallySent = true;
-        replyCount += 1;
-        this.store.recordReply(threadHash, now);
+        try {
+          await sendMessageToActiveThread(page, result.candidateReply, threadId);
+          actuallySent = true;
+          replyCount += 1;
+          this.store.recordReply(threadHash, now);
 
-        logEvent({
-          event: 'REPLY_SENT',
-          threadHash,
-          action: result.classification.action,
-          details: {
-            step: 'DISPATCHED_TO_MESSENGER',
-            messageCount: replyCount,
-          },
-        });
+          logEvent({
+            event: 'REPLY_SENT',
+            threadHash,
+            action: result.classification.action,
+            details: {
+              step: 'DISPATCHED_TO_MESSENGER',
+              messageCount: replyCount,
+            },
+          });
+        } catch {
+          // Fail closed and persist the message as handled. This is especially important for
+          // Message Requests, whose real DOM has no composer until the user accepts the request.
+          controlledReason = 'SEND_FAILED: Messenger dispatch unavailable; escalated to human.';
+          result = {
+            ...result,
+            finalDecision: 'HUMAN_REQUIRED',
+          };
+          logEvent({
+            event: 'HUMAN_REQUIRED',
+            threadHash,
+            action: result.classification.action,
+            reasonCode: 'MESSENGER_SEND_FAILED',
+            details: {
+              statusMessage: 'Messenger dispatch unavailable; escalated to human.',
+            },
+          });
+        }
       } else {
         controlledReason = eligibility.reason;
         logEvent({

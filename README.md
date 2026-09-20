@@ -2,9 +2,9 @@
 
 個人Facebook Messenger向けのローカル常駐型 **「Messenger Human Firewall」**。
 
-Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、AIとローカルの決定論的ルールを組み合わせて、安全にトリアージ・応答し、危険なメッセージは人間の確認へ回す（`BLOCK_RECOMMENDED` / `HUMAN_REQUIRED`）セキュリティ＆自動化基盤です。なお `BLOCK_RECOMMENDED` は推奨判定を記録するだけで、Messenger 上で実際にブロックする処理は行いません。
+Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で検知し、AIとローカルの決定論的ルールを組み合わせてトリアージするセキュリティ＆自動化基盤です。安全に返信可能なケースだけ返信候補を生成し、危険・曖昧なケースは `BLOCK_RECOMMENDED` または `HUMAN_REQUIRED` として自動返信を止めます。なお `BLOCK_RECOMMENDED` は推奨判定を記録するだけで、人間確認フラグを立てたり Messenger 上で実際にブロックしたりはしません。
 
-現在の本番構成では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。**Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
+`.env.example` の標準構成（Active Jev Mode）では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。このモードでは **Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
 
 | 役割 | コンポーネント |
 | :--- | :--- |
@@ -37,7 +37,7 @@ Internet Stranger ────▶ AI Firewall (Human Firewall) ────▶ �
 ## 処理パイプライン (Current Architecture)
 
 <p align="center">
-  <img src="docs/assets/architecture.png" alt="Messenger Human Firewall 構成図" width="100%">
+  <img src="docs/assets/architecture.svg" alt="Messenger Human Firewall 構成図" width="100%">
 </p>
 
 ### フローチャート (Pipeline Flowchart)
@@ -75,7 +75,7 @@ flowchart TD
     end
 
     subgraph SendGate["6. Controlled Send Gate"]
-        Limits{"Safety Gates<br/>Thread Match / Rate Limit / Kill Switch"}
+        Limits{"Safety Gates<br/>Scope / DOM / Composer / Rate Limit / Kill Switch"}
         Console["DRY_RUN=true<br/>Console only"]
         Send["DRY_RUN=false<br/>Messenger dispatch"]
     end
@@ -119,9 +119,9 @@ flowchart TD
 | **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
 | **Phase 3** | **Initial Human Firewall AI** | **完了 (Completed)** | Geminiベースの初期分類・返信生成、Structured Output、Reply Guard統合 |
 | **Phase 4** | **Dry Run Integration** | **完了 (Completed)** | 全パイプライン統合 (`DRY_RUN=true`)、シナリオテスト |
-| **Phase 5** | **Controlled Reply** | **完了 (Completed)** | 指定スレッド限定送信、返信上限、自動停止、Playwright入力・送信 |
+| **Phase 5** | **Controlled Reply** | **実装完了 / 実画面送信未検証** | デフォルト許可リスト、返信上限、自動停止、Playwright入力・送信。Fake HTMLでは検証済み |
 | **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | Curious ➜ Deep Probing ➜ Hesitant Closing の状態遷移 |
-| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧・手動ポーズ |
+| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧（HUMAN REQUIRED表示）・手動ポーズ |
 | **Phase 8** | **Jev Production Triage** | **完了 (Completed)** | Jevを本番トリアージへ昇格、TypeScript deterministic policy、Geminiを返信生成専用化、Fail-Closed / Shadow / Legacy互換 |
 | **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止（Active Mode。Legacy/Shadow では `TIME_WASTER` 時に分類＋返信生成で Gemini を2回呼びます）、ログサニタイズ、GitHub Actions CI再現性 |
 
@@ -169,7 +169,8 @@ flowchart TD
 4. **機密完全除外**: `.env`, Cookie, Facebook Session, ブラウザプロファイルはリポジトリから除外（`.gitignore`）。
 5. **多層レートリミット & コスト防護**:
    - 誤スレッド送信の二重検証（クリック後にアクティブスレッドを再検証）
-   - 実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しません）
+   - デフォルトの `AUTO_REPLY_SCOPE=test_thread_only` では、実送信は `ALLOWED_TEST_THREAD_ID` に完全一致するスレッドのみ（未設定なら送信しません）
+   - `AUTO_REPLY_SCOPE=all_threads` は送信許可リストを外す設定です。ただし現在の watcher は Message Requests を監視しており、実画面の未承認リクエストには返信欄がないため、**未承認リクエストへ自動返信できる設定ではありません**。送信欄がない場合は Fail-Closed で `HUMAN_REQUIRED` として処理済みに記録します
    - 1スレッド累計最大3返信制限（`CONTROLLED_MAX_REPLIES`、最大20まで設定可。到達でスレッド自動 pause）
    - 24時間ローリング送信上限（`MAX_REPLIES_PER_THREAD_PER_DAY`、デフォルト20返信/スレッド。`CONTROLLED_MAX_REPLIES` を引き上げない限り累計上限が先に効きます）
    - Jev / Gemini 共通の日次AIリクエスト上限（`MAX_LLM_REQUESTS_PER_DAY` デフォルト100回。Shadow Mode では Gemini と Jev の両方が消費します）
@@ -186,9 +187,9 @@ flowchart TD
 ### 必要要件
 - Node.js 20+
 - npm 9+
-- Google Chrome または Playwright Chromium
+- Google Chrome（`npm run dev` / `npm run login` は Playwright の `channel: 'chrome'` を使用）
 - TypeSafe Jev / System One API Key
-- Google Gemini API Key（返信生成を利用する場合）
+- Google Gemini API Key（返信生成、および Legacy / Shadow Mode のトリアージを利用する場合）
 
 ### インストール
 
@@ -204,11 +205,11 @@ cp .env.example .env
 > `@typesafe-ai/sdk` はレジストリからは取得できないため、`typesafe-ai-sdk-0.6.0.tgz` をリポジトリに同梱し、`package.json` / `package-lock.json` の両方で `file:typesafe-ai-sdk-0.6.0.tgz` として固定しています。通常は上記の `npm install` / CIの `npm ci` だけで追加作業は不要です。
 
 `.env` に必要な項目を設定します：
-- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（本番トリアージ用）
-- `GEMINI_API_KEY`: Google Gemini API Key（安全な返信文生成専用）
+- `TYPESAFE_API_KEY`: TypeSafe Jev API Key（Active Mode の本番トリアージ、または Shadow Mode の比較評価に使用）
+- `GEMINI_API_KEY`: Google Gemini API Key（Active Jev Mode では返信文生成用。Legacy / Shadow Mode ではトリアージにも使用）
 - `DRY_RUN=true`: 初期検証時は必ず `true` に設定
 - `AUTO_REPLY_SCOPE`: 返信対象スレッドのスコープ（`test_thread_only` または `all_threads`。デフォルトは `test_thread_only`）
-- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。未設定の場合、実送信は一切行われません。
+- `ALLOWED_TEST_THREAD_ID`: `DRY_RUN=false` かつ `AUTO_REPLY_SCOPE=test_thread_only` での実送信を許可する単一スレッドのID（会話URL `messenger.com/t/<id>` または `/e2ee/t/<id>` の `<id>`、もしくはそのSHA-256と完全一致）。`AUTO_REPLY_SCOPE=test_thread_only` では未設定の場合、実送信は一切行われません。`all_threads` ではこの値は参照されません。
 - `SCAN_INCLUDE_READ_THREADS`: `true` にすると未読マークのないリクエストスレッドも処理します（最後のメッセージは1回だけ処理され、ハッシュで重複排除されます）。未読マークの実DOM確認が済むまで、既存スレッドでパイプラインを検証するのに使えます。デフォルトは `false`。
 - `PORT`: ダッシュボードのポート（デフォルト3000）。`DATABASE_PATH` はダッシュボードと監視プロセスで共通に使われます。
 
@@ -304,7 +305,7 @@ npm run login
 保存されたセッションを用いて Messenger の「メッセージリクエスト」を監視スキャンします。未読メッセージを検知して適格性を判定しますが、**Messengerへの自動送信は行われません**。
 
 > [!IMPORTANT]
-> **メッセージリクエストのスレッドには返信欄がありません**（実画面では「承認」「削除」「ブロック」のみが表示されます）。返信するには相手のリクエストを承認する必要があり、本ツールは承認を自動で行いません。したがって、**リクエストに対しては「検出 → Jev 判定 → ポリシーによる Action 決定 → 返信案の生成 → Reply Guard 検査」までを DRY_RUN で行う「トリアージ専用」**として動作します。`DRY_RUN=false` の実送信は、承認済みで返信欄のある特定スレッド（`ALLOWED_TEST_THREAD_ID`）向けの機能で、実画面での送信動作は未検証です。
+> **メッセージリクエストのスレッドには返信欄がありません**（実画面では「承認」「削除」「ブロック」のみが表示されます）。返信するには相手のリクエストを承認する必要があり、本ツールは承認を自動で行いません。したがって、**リクエストに対しては「検出 → Jev 判定 → ポリシーによる Action 決定 → 返信案の生成 → Reply Guard 検査」までを DRY_RUN で行う「トリアージ専用」**として動作します。`DRY_RUN=false` の送信経路は、返信欄が存在するスレッド向けに実装されていますが、現在の watcher は Message Requests のみを走査します。未承認リクエストは返信欄がないため送信できず、送信試行は Fail-Closed で `HUMAN_REQUIRED` に倒し、そのメッセージを処理済みとして保存します。承認済みスレッドでの実画面送信は未検証です。
 
 実行中は `[scan]` で始まる診断ログ（リンク数・スキップ理由コード・吹き出しの位置の数値）が出力されます。メッセージ本文や相手の名前は含まれません。
 
@@ -315,7 +316,7 @@ npm run dev
 DEBUG=true npm run dev
 ```
 
-### 3. 実送信モードの切り替え (Controlled Testing & Production Auto-Reply)
+### 3. 実送信ゲートの設定 (Controlled / Experimental)
 
 デフォルトでは安全のため `DRY_RUN=true` かつ `AUTO_REPLY_SCOPE=test_thread_only` に設定されています。
 
@@ -327,23 +328,24 @@ AUTO_REPLY_SCOPE=test_thread_only
 ALLOWED_TEST_THREAD_ID="your_test_thread_id_or_hash"
 ```
 
-#### B. 全スレッド対象の本番自動返信モード (Production All-Threads Mode)
-届いた未読メッセージリクエスト全般に対して自動返信を有効化するモードです：
+#### B. 許可リストを外すモード (`all_threads`, Experimental)
+`ALLOWED_TEST_THREAD_ID` の一致チェックを外すモードです。**未承認の Message Request を自動承認・自動返信する機能ではありません**：
 ```bash
 DRY_RUN=false
 AUTO_REPLY_SCOPE=all_threads
 ```
 
 > [!WARNING]
-> **本番開放時の重要注意事項**:
-> - `AUTO_REPLY_SCOPE=all_threads` かつ `DRY_RUN=false` の組み合わせ時のみ、届いたすべての未読メッセージリクエストに対して自動返信が実行されます。
-> - `all_threads` に設定した場合でも、既存の安全機構（`CONTROLLED_MAX_REPLIES`、24時間上限 `MAX_REPLIES_PER_THREAD_PER_DAY`、最小間隔 `MIN_REPLY_INTERVAL_SECONDS`、Reply Guard、LLM日次上限 `MAX_LLM_REQUESTS_PER_DAY`、`HUMAN_REQUIRED` 分岐、重複検知、Kill Switch）は**全て機能し続けます**。
+> **重要注意事項**:
+> - `all_threads` が変更するのは送信許可リストの判定だけです。現在の watcher は Message Requests を走査し、未承認リクエストの実DOMには返信欄がありません。そのため、`all_threads` にしても未承認リクエストへ自動返信はできません。
+> - 返信欄が存在しない／送信できない場合は Fail-Closed で `HUMAN_REQUIRED` にし、メッセージ状態を保存して同じ受信メッセージを次回スキャンで再度LLM処理しないようにします。
+> - 送信可能な画面で動作する場合も、`CONTROLLED_MAX_REPLIES`、24時間上限 `MAX_REPLIES_PER_THREAD_PER_DAY`、最小間隔 `MIN_REPLY_INTERVAL_SECONDS`、Reply Guard、LLM日次上限 `MAX_LLM_REQUESTS_PER_DAY`、`HUMAN_REQUIRED` 分岐、重複検知、Kill Switch は**全て機能し続けます**。
 > - Metaの利用規約や自動化ポリシー違反によるアカウント制限・一時BANのリスクを十分に理解した上で設定してください。詳細は [SECURITY.md](SECURITY.md) を参照してください。
 
 #### ロールバック手順 (Rollback)
 万が一の誤送信懸念やアカウント制限リスクを感じた場合、直ちに以下のいずれかで安全側に復旧できます：
-1. **即時安全側への復帰**: `.env` で `AUTO_REPLY_SCOPE=test_thread_only`（または `DRY_RUN=true`）に変更して再起動します。`ALLOWED_TEST_THREAD_ID` に一致しない全スレッドへの送信が即時に遮断されます。
-2. **緊急停止 (Kill Switch)**: `npm run pause` を実行するか、`.env` に `PAUSE_ALL=true` を設定することで、プロセス再起動不要でミリ秒単位で全メッセージ送信を強制停止できます。
+1. **安全側への復帰**: `.env` で `AUTO_REPLY_SCOPE=test_thread_only`（または `DRY_RUN=true`）に変更して watcher を再起動します。`test_thread_only` では `ALLOWED_TEST_THREAD_ID` に一致しないスレッドへの送信が遮断されます。
+2. **緊急停止 (Kill Switch)**: 実行中プロセスを即時停止する場合は `npm run pause`（またはダッシュボードの Kill Switch）を使います。`.env` の `PAUSE_ALL=true` は起動時設定なので、変更後に watcher の再起動が必要です。
 
 ### 4. 緊急停止 (Kill Switch)
 
@@ -358,10 +360,10 @@ npm run resume
 npm run status
 ```
 
-`.env` で `PAUSE_ALL=true` を設定することでも即時停止可能です。
+`.env` で `PAUSE_ALL=true` を設定して起動／再起動すると、起動時から停止状態にできます。実行中の watcher を即時停止したい場合は `npm run pause` またはダッシュボードの Kill Switch を使ってください。
 
 ### 5. ローカルダッシュボード (Web UI)
-ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧の閲覧、スレッド単位の手動停止が可能です。
+ブラウザ上でリアルタイムにシステム状態の確認、Kill Switch の切替、スレッド一覧（`HUMAN REQUIRED` 状態を含む）の閲覧、スレッド単位の手動停止が可能です。
 
 ```bash
 npm run dashboard
@@ -414,8 +416,8 @@ npm run lint
 - メッセージの送受信の向きはDOMにマーカーが無いため、吹き出しの水平位置（左＝受信、右＝送信）で判定します。中央寄りの行（日付・システム通知）は「不明」とし、最後の行が不明な場合は返信しません。
 - 監視対象は「リクエスト」の「知り合いかも」タブの一覧です（「スパム」タブは対象外）。メッセージ本文のないスレッド（グループの退出通知、「メッセージを読み込めません」など）は `NO_MESSAGES` としてスキップされます。
 - リクエストのスレッドは、開くと既読になります（相手には通知されません）。
-- Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信は Reply Guard と送信許可リストを通ります。
-- 送信処理が例外で失敗した場合、そのメッセージは処理済みとして記録されず、次のスキャンで再処理されます（日次LLM上限で保護されます）。
+- Jev のリスクシグナルは閾値（デフォルト0.85）未満だと個別ルールが発動しないため、閾値ぎりぎりの詐欺メッセージは `TIME_WASTER`（返信生成）になり得ます。返信候補は Reply Guard と送信ゲート（scope / DOM再検証 / composer確認 / 各種上限）を通ります。
+- 送信処理が例外で失敗した場合は Fail-Closed で `HUMAN_REQUIRED` に倒し、その受信メッセージを処理済みとして保存します。これにより、同じメッセージで送信失敗とLLM呼び出しを繰り返しません。
 - CAPTCHAや多要素認証（MFA）を自動で迂回することはポリシー上サポートしません。初回ログインは手動ブラウザで行います。
 - 本ツールは受信メッセージに対する防御目的であり、能動的な新規メッセージ送信機能は持っていません。
 
@@ -425,7 +427,7 @@ npm run lint
 
 本プロジェクトでは、安全性およびプライバシー保護の観点から以下の機能を明示的にスコープ外（Non-goals）としています：
 
-- **友人・既存連絡先への自動返信**: 監視対象はメッセージリクエストです（リンクは `[role="row"]` 内の `/requests/t/<id>/` 等から取得）。実送信は `ALLOWED_TEST_THREAD_ID` に一致する単一スレッドに限定されます。通常受信トレイの既知のスレッドへの誤送信を防ぐ最終防壁はこの許可リストです。
+- **友人・既存連絡先への自動返信**: watcher の監視対象はメッセージリクエストです（リンクは `[role="row"]` 内の `/requests/t/<id>/` 等から取得）。デフォルトの `test_thread_only` では `ALLOWED_TEST_THREAD_ID` が追加防壁になります。`all_threads` はこの許可リストだけを外す実験的設定で、未承認リクエストを自動承認したり返信欄を作る機能ではありません。
 - **CAPTCHA・MFA・ボット検知の回避**: Metaのセキュリティ機構を迂回する機能は実装しません。ログインや二要素認証はユーザー本人が手動ブラウザで行います。
 - **能動的な新規DM送信・営業自動化**: 相手から受信したメッセージへの防壁・応答に限定し、自分から新規スレッドを開始する営業・送信機能は提供しません。
 - **本人になりすました合意・意思決定**: 所有者の意見代弁、契約締結、面会受諾、金銭授受の約束は行いません。
