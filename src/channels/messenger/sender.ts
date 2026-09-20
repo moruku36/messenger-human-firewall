@@ -48,16 +48,20 @@ export async function sendMessageToActiveThread(
     throw new Error('Message input textbox not found. Aborting send.');
   }
 
-  // 4. Focus and enter reply text
+  // 4. Focus and enter reply text.
+  // The real composer is a Lexical editor: `fill()` does not reliably update its internal
+  // state, so text is inserted through the keyboard (input event) after replacing any draft.
   await inputElement.click();
   await page.waitForTimeout(200);
-
-  // Use fill or type safely
-  await inputElement.fill(replyText).catch(async () => {
-    // Fallback for contenteditable divs
-    await page.keyboard.insertText(replyText);
-  });
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.insertText(replyText);
   await page.waitForTimeout(300);
+
+  // Never press send unless the composer actually contains the vetted reply.
+  const composed = ((await inputElement.innerText().catch(() => '')) || '').trim();
+  if (composed !== replyText.trim()) {
+    throw new Error('Composer content does not match the vetted reply. Aborting send.');
+  }
 
   // 5. Click send button or press Enter
   const sendBtn = await page.$(sendSelector);

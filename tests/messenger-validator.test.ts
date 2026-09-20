@@ -28,6 +28,17 @@ describe('Messenger Thread Eligibility Validator', () => {
     expect(result.reason).toContain('SELF_REPLIED');
   });
 
+  it('fails safe when the direction of the last message is unknown', () => {
+    const messages: ThreadMessage[] = [
+      { direction: 'incoming', text: 'Hello!' },
+      { direction: 'unknown', text: '不在着信' },
+    ];
+
+    const result = evaluateThreadEligibility(messages);
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toContain('AMBIGUOUS_DIRECTION');
+  });
+
   it('rejects empty threads or messages without text', () => {
     expect(evaluateThreadEligibility([]).eligible).toBe(false);
 
