@@ -232,6 +232,49 @@ describe('Browser Watcher with Fake Messenger HTML Fixture', () => {
     expect(results.map((r) => r.threadId)).toEqual(['a1']);
   });
 
+  it('finds and opens a thread that is outside the virtualised list viewport', async () => {
+    const body = `
+      <div id="box" style="height:200px;overflow:auto">
+        <div style="position:relative;height:3000px">
+          <div role="grid" id="list" style="position:absolute;left:0;right:0"></div>
+        </div>
+      </div>
+      <script>
+        const box = document.getElementById('box');
+        const list = document.getElementById('list');
+        function render() {
+          const start = Math.max(0, Math.floor(box.scrollTop / 50) - 1);
+          list.style.top = start * 50 + 'px';
+          list.innerHTML = '';
+          for (let i = start; i < Math.min(60, start + 7); i++) {
+            const row = document.createElement('div');
+            row.setAttribute('role', 'row');
+            row.style.height = '50px';
+            const a = document.createElement('a');
+            a.setAttribute('role', 'link');
+            a.setAttribute('href', '/requests/t/item-' + i + '/');
+            a.textContent = 'item-' + i;
+            if (window.__current === 'item-' + i) a.setAttribute('aria-current', 'page');
+            a.addEventListener('click', (e) => { e.preventDefault(); window.__current = 'item-' + i; render(); });
+            row.appendChild(a);
+            list.appendChild(row);
+          }
+        }
+        box.addEventListener('scroll', render);
+        render();
+      </script>`;
+    await page.route('https://www.messenger.com/requests/', (route) =>
+      route.fulfill({ contentType: 'text/html; charset=utf-8', body }),
+    );
+    await page.goto('https://www.messenger.com/requests/');
+
+    // item-40 is far below the first rendered rows.
+    expect(await page.locator('a[href="/requests/t/item-40/"]').count()).toBe(0);
+    expect(await selectAndVerifyActiveThread(page, 'item-40')).toBe(true);
+    // ...and a thread that does not exist still fails safely.
+    expect(await selectAndVerifyActiveThread(page, 'item-999')).toBe(false);
+  });
+
   it('extracts the thread id from /t/<id> and /e2ee/t/<id> hrefs, never from names', () => {
     expect(threadIdFromHref('/t/1234567890')).toBe('1234567890');
     expect(threadIdFromHref('/e2ee/t/998877/')).toBe('998877');
