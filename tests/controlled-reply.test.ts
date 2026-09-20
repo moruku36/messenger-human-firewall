@@ -97,6 +97,36 @@ describe('Phase 5: Controlled Reply & Safeguards Test Suite', () => {
     expect(lastMsg.text).toBe('テスト送信メッセージです。');
   });
 
+  it('fails closed and persists state when the Messenger composer is unavailable', async () => {
+    const targetThreadId = 'thread-1';
+    const targetHash = computeHash(targetThreadId);
+    const lastMessageHash = computeHash('Incoming without composer');
+    process.env.AUTO_REPLY_SCOPE = 'test_thread_only';
+    process.env.ALLOWED_TEST_THREAD_ID = targetThreadId;
+    process.env.DRY_RUN = 'false';
+    resetConfigForTest();
+
+    await page.locator('#message-box').evaluate((el) => el.remove());
+
+    const mock = new ControlledMockProvider();
+    const firewall = new HumanFirewallCore(mock, mock);
+    const pipeline = new FirewallPipeline(firewall, store);
+
+    const result = await pipeline.handleIncomingMessage({
+      threadId: targetThreadId,
+      threadHash: targetHash,
+      senderIdHash: computeHash('sender-no-composer'),
+      lastMessageHash,
+      incomingText: '案件相談です',
+      page,
+    });
+
+    expect(result?.finalDecision).toBe('HUMAN_REQUIRED');
+    expect(store.getThread(targetHash)?.lastMessageHash).toBe(lastMessageHash);
+    expect(store.getThread(targetHash)?.humanRequired).toBe(true);
+    expect(store.getThread(targetHash)?.replyCount).toBe(0);
+  });
+
   it('strictly enforces 3-reply maximum limit per thread and auto-pauses', async () => {
     const targetThreadId = 'thread-1';
     const targetHash = computeHash(targetThreadId);

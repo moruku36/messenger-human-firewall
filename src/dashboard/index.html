@@ -103,6 +103,7 @@
     .badge-normal { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
     .badge-sales { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
     .badge-paused { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+    .badge-human { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
   </style>
 </head>
 <body>
@@ -123,7 +124,7 @@
       <div id="modeVal" class="card-value">...</div>
     </div>
     <div class="card">
-      <div class="card-title">Allowed Test Thread</div>
+      <div class="card-title">Reply Target</div>
       <div id="threadTargetVal" class="card-value" style="font-size: 16px; word-break: break-all;">...</div>
     </div>
     <div class="card">
@@ -170,8 +171,10 @@
         btn.className = 'btn btn-danger';
       }
 
-      document.getElementById('modeVal').textContent = data.dryRun ? 'DRY_RUN (Console only)' : 'CONTROLLED_REPLY (Live)';
-      document.getElementById('threadTargetVal').textContent = data.allowedTestThreadId || 'None (All sends blocked)';
+      document.getElementById('modeVal').textContent = `${data.dryRun ? 'DRY_RUN (Console only)' : 'LIVE'} / ${data.autoReplyScope}`;
+      document.getElementById('threadTargetVal').textContent = data.autoReplyScope === 'all_threads'
+        ? 'Allowlist bypass (composer still required)'
+        : (data.allowedTestThreadId || 'None (All live sends blocked)');
     }
 
     async function toggleKillSwitch() {
@@ -212,7 +215,7 @@
             <td><span class="badge ` + badgeClass + `">` + t.mode + `</span></td>
             <td><strong>` + t.riskScore + `</strong> / 100</td>
             <td>📥 ` + t.messageCount + ` / 📤 ` + (t.replyCount || 0) + `</td>
-            <td>` + (t.paused ? '<span class="badge badge-paused">PAUSED</span>' : '<span class="badge badge-normal">ACTIVE</span>') + `</td>
+            <td>` + (t.humanRequired ? '<span class="badge badge-human">HUMAN REQUIRED</span>' : (t.paused ? '<span class="badge badge-paused">PAUSED</span>' : '<span class="badge badge-normal">ACTIVE</span>')) + `</td>
             <td>` + lastSeenDate + `</td>
             <td>
               <button class="btn btn-sm ` + (t.paused ? 'btn-success' : 'btn-danger') + `" onclick="toggleThreadPause('` + t.threadId + `', ` + !t.paused + `)">

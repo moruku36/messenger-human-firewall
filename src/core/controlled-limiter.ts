@@ -11,8 +11,10 @@ export interface ControlledLimitResult {
 /**
  * Checks whether a live reply can be safely dispatched to the specified thread.
  * Enforces:
- * 1. Explicit test thread allowance (ALLOWED_TEST_THREAD_ID)
- * 2. Maximum reply limit per thread (Phase 5: default 3 replies)
+ * 1. Thread scope gate: ALLOWED_TEST_THREAD_ID in test_thread_only mode, or bypass the
+ *    allowlist in all_threads mode. Actual dispatch still requires a sendable Messenger
+ *    page/composer and is enforced separately by sender.ts.
+ * 2. Maximum reply limit per thread (default 3 replies)
  * 3. Daily reply limit (24 hours)
  * 4. Thread paused state
  */
@@ -36,7 +38,7 @@ export function checkControlledReplyEligibility(
     };
   }
 
-  // 2. Thread scope and allowance check
+  // 2. Thread scope gate
   if (config.AUTO_REPLY_SCOPE === 'test_thread_only') {
     // Explicit test thread allowance check (Strict equality only, no includes)
     const allowedTarget = config.ALLOWED_TEST_THREAD_ID?.trim();
@@ -63,7 +65,7 @@ export function checkControlledReplyEligibility(
     }
   }
 
-  // 3. Maximum reply limit check (Phase 5 constraint: max 3 replies)
+  // 3. Maximum reply limit check
   if (currentCount >= maxReplies) {
     return {
       allowed: false,
