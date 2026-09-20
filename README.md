@@ -2,9 +2,9 @@
 
 個人Facebook Messenger向けのローカル常駐型 **「Messenger Human Firewall」**。
 
-Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で安全に検知し、AIとローカルの決定論的ルールを組み合わせて、安全にトリアージ・応答し、危険なメッセージは人間の確認へ回す（`BLOCK_RECOMMENDED` / `HUMAN_REQUIRED`）セキュリティ＆自動化基盤です。なお `BLOCK_RECOMMENDED` は推奨判定を記録するだけで、Messenger 上で実際にブロックする処理は行いません。
+Facebook Messengerに届く「友人ではない／知らない相手からのメッセージリクエスト」をローカルPC上で検知し、AIとローカルの決定論的ルールを組み合わせてトリアージするセキュリティ＆自動化基盤です。安全に返信可能なケースだけ返信候補を生成し、危険・曖昧なケースは `BLOCK_RECOMMENDED` または `HUMAN_REQUIRED` として自動返信を止めます。なお `BLOCK_RECOMMENDED` は推奨判定を記録するだけで、人間確認フラグを立てたり Messenger 上で実際にブロックしたりはしません。
 
-現在の本番構成では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。**Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
+`.env.example` の標準構成（Active Jev Mode）では、**TypeSafe Jev / System One が受信メッセージから型付きセキュリティシグナルを抽出し、TypeScript の決定論的ポリシーが最終Actionを決定**します。このモードでは **Google Geminiは返信が必要な場合の文章生成専用**で、トリアージ判断には使用しません。
 
 | 役割 | コンポーネント |
 | :--- | :--- |
@@ -75,7 +75,7 @@ flowchart TD
     end
 
     subgraph SendGate["6. Controlled Send Gate"]
-        Limits{"Safety Gates<br/>Thread Match / Rate Limit / Kill Switch"}
+        Limits{"Safety Gates<br/>Scope / DOM / Composer / Rate Limit / Kill Switch"}
         Console["DRY_RUN=true<br/>Console only"]
         Send["DRY_RUN=false<br/>Messenger dispatch"]
     end
@@ -119,9 +119,9 @@ flowchart TD
 | **Phase 2** | **Browser Watcher** | **完了 (Completed)** | Playwright監視、Message Requests/未読検知、SQLite重複排除、Fake HTMLテスト |
 | **Phase 3** | **Initial Human Firewall AI** | **完了 (Completed)** | Geminiベースの初期分類・返信生成、Structured Output、Reply Guard統合 |
 | **Phase 4** | **Dry Run Integration** | **完了 (Completed)** | 全パイプライン統合 (`DRY_RUN=true`)、シナリオテスト |
-| **Phase 5** | **Controlled Reply** | **完了 (Completed)** | 指定スレッド限定送信、返信上限、自動停止、Playwright入力・送信 |
+| **Phase 5** | **Controlled Reply** | **実装完了 / 実画面送信未検証** | デフォルト許可リスト、返信上限、自動停止、Playwright入力・送信。Fake HTMLでは検証済み |
 | **Phase 6** | **Time Waster State Machine** | **完了 (Completed)** | Curious ➜ Deep Probing ➜ Hesitant Closing の状態遷移 |
-| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧・手動ポーズ |
+| **Phase 7** | **Local Dashboard** | **完了 (Completed)** | 管理画面、Kill Switch切替、スレッド一覧（HUMAN REQUIRED表示）・手動ポーズ |
 | **Phase 8** | **Jev Production Triage** | **完了 (Completed)** | Jevを本番トリアージへ昇格、TypeScript deterministic policy、Geminiを返信生成専用化、Fail-Closed / Shadow / Legacy互換 |
 | **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止（Active Mode。Legacy/Shadow では `TIME_WASTER` 時に分類＋返信生成で Gemini を2回呼びます）、ログサニタイズ、GitHub Actions CI再現性 |
 
