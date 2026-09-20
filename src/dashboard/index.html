@@ -172,7 +172,7 @@
 
       document.getElementById('modeVal').textContent = `${data.dryRun ? 'DRY_RUN (Console only)' : 'LIVE'} / ${data.autoReplyScope}`;
       document.getElementById('threadTargetVal').textContent = data.autoReplyScope === 'all_threads'
-        ? 'All eligible Message Requests'
+        ? 'Allowlist bypass (composer still required)'
         : (data.allowedTestThreadId || 'None (All live sends blocked)');
     }
 
