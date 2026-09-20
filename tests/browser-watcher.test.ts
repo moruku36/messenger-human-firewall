@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractActiveThreadMessages,
   isLoginRequired,
@@ -273,6 +273,26 @@ describe('Browser Watcher with Fake Messenger HTML Fixture', () => {
     expect(await selectAndVerifyActiveThread(page, 'item-40')).toBe(true);
     // ...and a thread that does not exist still fails safely.
     expect(await selectAndVerifyActiveThread(page, 'item-999')).toBe(false);
+  });
+
+  it('detects unread rows by the mark-as-read button and by the blue dot fallback', async () => {
+    // thread-1 / thread-3: button labelled 既読にする; thread-4: round dot inside an unlabelled
+    // button (fallback); thread-2 has no marker but shows a green presence dot outside any button.
+    await page.evaluate(() => {
+      const presence = document.createElement('span');
+      presence.style.cssText = 'display:inline-block;width:10px;height:10px;border-radius:50%;background:#31a24c';
+      document.querySelector('#link-thread-2')!.appendChild(presence);
+    });
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      await scanMessageRequests(page, store);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(logs.some((l) => l.includes('links=4 unread=3 candidates=3'))).toBe(true);
   });
 
   it('extracts the thread id from /t/<id> and /e2ee/t/<id> hrefs, never from names', () => {

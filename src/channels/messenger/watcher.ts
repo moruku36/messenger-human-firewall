@@ -233,16 +233,34 @@ interface ThreadLinkInfo {
 async function readThreadLinks(page: Page): Promise<ThreadLinkInfo[]> {
   const rows = await page.$$eval(
     joinSelectors(MESSENGER_SELECTORS.threadItem),
-    (els, unreadSel) =>
-      els.map((el) => {
+    (els, unreadSel) => {
+      // Fallback: a small, round, filled element inside a role=button within the row link
+      // (the blue unread dot). Presence dots on avatars are not inside such a button.
+      const hasDot = (root: Element): boolean =>
+        Array.from(root.querySelectorAll('[role="button"] span')).some((s) => {
+          const b = s.getBoundingClientRect();
+          const cs = getComputedStyle(s);
+          return (
+            b.width > 0 &&
+            b.width <= 16 &&
+            Math.abs(b.width - b.height) < 1 &&
+            parseFloat(cs.borderTopLeftRadius) >= b.width / 2 - 1 &&
+            cs.backgroundColor !== 'rgba(0, 0, 0, 0)'
+          );
+        });
+      return els.map((el) => {
         const row = el.closest('[role="row"]');
         const current = el.getAttribute('aria-current');
         return {
           href: el.getAttribute('href'),
           current: current !== null && current !== '' && current !== 'false',
-          unread: el.querySelector(unreadSel) !== null || (row !== null && row.querySelector(unreadSel) !== null),
+          unread:
+            el.querySelector(unreadSel) !== null ||
+            (row !== null && row.querySelector(unreadSel) !== null) ||
+            hasDot(el),
         };
-      }),
+      });
+    },
     joinSelectors(MESSENGER_SELECTORS.unreadIndicator),
   );
 
@@ -255,6 +273,26 @@ async function readThreadLinks(page: Page): Promise<ThreadLinkInfo[]> {
     links.push({ threadId, current: r.current, unread: r.unread });
   }
   return links;
+}
+
+/**
+ * The list loads progressively (row count differs between reads right after a tab switch), so
+ * wait until the number of conversation rows stops changing before reading it.
+ */
+async function waitForListToSettle(page: Page): Promise<void> {
+  const test = process.env.NODE_ENV === 'test';
+  const interval = test ? 50 : 400;
+  const maxPolls = test ? 8 : 16;
+  const needStable = test ? 2 : 3;
+  let last = -1;
+  let stable = 0;
+  for (let i = 0; i < maxPolls; i++) {
+    const count = await page.locator(joinSelectors(MESSENGER_SELECTORS.threadItem)).count();
+    stable = count === last ? stable + 1 : 0;
+    if (stable >= needStable && count > 0) return;
+    last = count;
+    await page.waitForTimeout(interval);
+  }
 }
 
 /** True only if the given thread is the single active (aria-current) conversation in the list. */
@@ -371,7 +409,7 @@ async function scanCurrentList(
   // Collect ids first: element handles go stale as the SPA re-renders after each click.
   // Newest conversations are at the top of the list: start there.
   await scrollThreadList(page, 'top');
-  await page.waitForTimeout(process.env.NODE_ENV === 'test' ? 60 : 400);
+  await waitForListToSettle(page);
   const allLinks = (await readThreadLinks(page)).filter((l) => !seen.has(l.threadId));
   allLinks.forEach((l) => seen.add(l.threadId));
   const candidates = allLinks.filter((l) => l.unread || config.SCAN_INCLUDE_READ_THREADS);

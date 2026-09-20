@@ -14,8 +14,11 @@
  * - The composer is a Lexical editor: `div[role="textbox"][contenteditable="true"]` whose
  *   aria-label is "<name>に書く" (not a fixed string), so it must not be matched by label.
  *
- * Not yet verified against the real DOM (needs an actual unread request to inspect):
- * - `unreadIndicator`
+ * - Unread rows contain a `div[role="button"]` (the "mark as read" toggle) inside the row link,
+ *   whose child is a small round blue `span` (the dot). Its label is 既読にする / Mark as read.
+ *   Presence avatars (green online dots) are NOT inside such a button.
+ *
+ * Not yet verified against the real DOM:
  * - `sendButton` (Enter is used as fallback; never match `*="送信"` loosely, since
  *   "「いいね！」を送信" / "音声クリップを送信" buttons would be hit).
  */
@@ -32,12 +35,11 @@ export const MESSENGER_SELECTORS = {
   // (which contains the sender's name).
   threadItem: ['[role="row"] a[role="link"][href*="/t/"]'],
 
-  // UNVERIFIED on the real DOM: best-effort unread markers inside a list row.
+  // Unread marker inside a list row: the "mark as read" toggle button.
+  // (A geometric fallback for the blue dot lives in watcher.ts.)
   unreadIndicator: [
-    'span[aria-label*="未読" i]',
-    'span[aria-label*="unread" i]',
-    'div[aria-label*="未読" i]',
-    'div[aria-label*="unread" i]',
+    '[role="button"][aria-label*="既読にする"]',
+    '[role="button"][aria-label*="Mark as read" i]',
   ],
 
   // Legacy explicit outgoing markers. The real DOM has none of these on message rows,
