@@ -36,28 +36,31 @@ export function checkControlledReplyEligibility(
     };
   }
 
-  // 2. Explicit thread allowance check (Strict equality only, no includes)
-  const allowedTarget = config.ALLOWED_TEST_THREAD_ID?.trim();
-  if (!allowedTarget) {
-    return {
-      allowed: false,
-      reason: 'TARGET_NOT_CONFIGURED: ALLOWED_TEST_THREAD_ID is empty. Only specified test thread is allowed.',
-      currentCount,
-      maxReplies,
-    };
-  }
+  // 2. Thread scope and allowance check
+  if (config.AUTO_REPLY_SCOPE === 'test_thread_only') {
+    // Explicit test thread allowance check (Strict equality only, no includes)
+    const allowedTarget = config.ALLOWED_TEST_THREAD_ID?.trim();
+    if (!allowedTarget) {
+      return {
+        allowed: false,
+        reason: 'TARGET_NOT_CONFIGURED: ALLOWED_TEST_THREAD_ID is empty. Only specified test thread is allowed.',
+        currentCount,
+        maxReplies,
+      };
+    }
 
-  const isMatchingThread =
-    allowedTarget === threadId ||
-    allowedTarget === threadHash;
+    const isMatchingThread =
+      allowedTarget === threadId ||
+      allowedTarget === threadHash;
 
-  if (!isMatchingThread) {
-    return {
-      allowed: false,
-      reason: `THREAD_NOT_ALLOWED: Target ${threadHash.slice(0, 8)} does not match ALLOWED_TEST_THREAD_ID.`,
-      currentCount,
-      maxReplies,
-    };
+    if (!isMatchingThread) {
+      return {
+        allowed: false,
+        reason: `THREAD_NOT_ALLOWED: Target ${threadHash.slice(0, 8)} does not match ALLOWED_TEST_THREAD_ID.`,
+        currentCount,
+        maxReplies,
+      };
+    }
   }
 
   // 3. Maximum reply limit check (Phase 5 constraint: max 3 replies)
