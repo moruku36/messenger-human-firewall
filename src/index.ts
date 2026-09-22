@@ -63,6 +63,17 @@ function sleep(ms: number): Promise<void> {
 export async function runWatcherLoop(): Promise<void> {
   const config = getConfig();
 
+  // JEV_ENABLED with JEV_SHADOW_MODE=false makes Jev the sole classifier: without an API key
+  // every message silently fails closed to HUMAN_REQUIRED and no reply is ever sent, forever.
+  // Fail loudly at startup instead of leaving the operator to debug a watcher that "does nothing".
+  if (config.JEV_ENABLED && !config.JEV_SHADOW_MODE && !config.TYPESAFE_API_KEY) {
+    throw new Error(
+      'Invalid configuration: JEV_ENABLED=true with JEV_SHADOW_MODE=false requires TYPESAFE_API_KEY. ' +
+        'Every message will silently fail closed (HUMAN_REQUIRED) otherwise. ' +
+        'Set TYPESAFE_API_KEY, or set JEV_ENABLED=false to use Gemini classification.',
+    );
+  }
+
   console.log('====================================================');
   console.log('🛡️  Messenger Human Firewall                       🛡️');
   console.log('====================================================');
