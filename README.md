@@ -125,6 +125,8 @@ flowchart TD
 | **Phase 8** | **Jev Production Triage** | **完了 (Completed)** | Jevを本番トリアージへ昇格、TypeScript deterministic policy、Geminiを返信生成専用化、Fail-Closed / Shadow / Legacy互換 |
 | **Phase 9** | **Operational Hardening** | **完了 (Completed)** | Jev/Gemini共通API quota、重複Gemini呼び出し抑止（Active Mode。Legacy/Shadow では `TIME_WASTER` 時に分類＋返信生成で Gemini を2回呼びます）、ログサニタイズ、GitHub Actions CI再現性 |
 
+Messenger版が実際の返信に至らなかった理由と、現行実装の制約は[調査まとめ](docs/WHY_MESSENGER_DID_NOT_WORK.md)を参照してください。
+
 ---
 
 ## 信頼境界とデータポリシー (Trust Boundary & Data Policy)
